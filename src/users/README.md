@@ -1,6 +1,6 @@
 # User Module
 
-The User module handles user management, authentication, and role-based access control for the StarkMole Backend.
+The User module handles user management, authentication, and role-based access control for the Proof-Stell Backend.
 
 ## Features
 

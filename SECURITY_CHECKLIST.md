@@ -1,4 +1,4 @@
-# StarkMole-Backend Security Audit Checklist
+# Proof-Stell-Backend Security Audit Checklist
 
 **Audit Date:** {{CURRENT_DATE}}
 

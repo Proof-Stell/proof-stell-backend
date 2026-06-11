@@ -19,7 +19,7 @@ import { CacheController } from './cache.controller';
         port: configService.redisPort,
         ttl: 300, // Default 5 minutes TTL
         max: 1000, // Maximum number of items in cache
-        keyPrefix: 'starkmole:', // Prefix for all cache keys
+        keyPrefix: 'Proof-Stell:', // Prefix for all cache keys
         // Redis connection options
         retryDelayOnFailover: 100,
         maxRetriesPerRequest: 3,

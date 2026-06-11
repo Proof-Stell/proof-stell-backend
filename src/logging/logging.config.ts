@@ -42,7 +42,7 @@ export const createWinstonLogger = (clsService: ClsService) => {
         format: winston.format.combine(
           winston.format.timestamp(),
           winston.format.ms(),
-          nestWinstonModuleUtilities.format.nestLike('StarkMole', {
+          nestWinstonModuleUtilities.format.nestLike('Proof-Stell', {
             colors: true,
             prettyPrint: true,
           }),

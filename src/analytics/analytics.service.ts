@@ -30,7 +30,7 @@ export class AnalyticsService {
     @InjectRepository(AnalyticsEventEntity)
     private analyticsRepo: Repository<AnalyticsEventEntity>,
   @Inject(CACHE_MANAGER) private cacheManager: Cache,
-  private readonly logger = new Logger(AnalyticsService.name),
+  private readonly logger = new Logger(AnalyticsService.name), // ← wrong pattern
   ) {}
 
   async logEvent(dto: CreateAnalyticsDto): Promise<void> {

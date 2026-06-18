@@ -32,18 +32,20 @@ import { CreateUserDto } from '../dto/create-user.dto';
 import { ReadUserDto } from '../dto/read-user.dto';
 import { UpdateUserDto } from '../dto/update-user.dto';
 import { ChangePasswordDto } from '../dto/change-password.dto';
-import { FileInterceptor } from '@nestjs/platform-express';
-import { diskStorage } from 'multer';
-import { extname } from 'path';
 import { CacheInterceptor } from '../../cache/interceptors/cache.interceptor';
 import { Cacheable, CacheKeys } from '../../cache/decorators/cache.decorator';
+import { AvatarService } from '../avatar/avatar.service';
+import { AvatarUploadInterceptor } from '../avatar/avatar-upload.interceptor';
 
 @ApiTags('Users')
 @ApiBearerAuth('JWT-auth')
 @Controller('users')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class UserController {
-  constructor(private readonly userService: UserService) {}
+  constructor(
+    private readonly userService: UserService,
+    private readonly avatarService: AvatarService,
+  ) {}
 
   @ApiOperation({ summary: 'Create new user (Admin only)' })
   @ApiBody({ type: CreateUserDto })
@@ -222,7 +224,7 @@ export class UserController {
       properties: {
         avatarUrl: {
           type: 'string',
-          example: '/uploads/1234567890-avatar.jpg',
+          example: '/avatars/1234567890-avatar.webp',
         },
       },
     },
@@ -232,35 +234,11 @@ export class UserController {
     description: 'Invalid file type or no file uploaded',
   })
   @Post('profile/avatar')
-  @UseInterceptors(
-    FileInterceptor('file', {
-      storage: diskStorage({
-        destination: './uploads',
-        filename: (req, file, cb) => {
-          const uniqueSuffix =
-            Date.now() + '-' + Math.round(Math.random() * 1e9);
-          cb(null, uniqueSuffix + extname(file.originalname));
-        },
-      }),
-      fileFilter: (req, file, cb) => {
-        if (!file.mimetype.match(/^image\/(jpeg|png|gif|jpg)$/)) {
-          return cb(new Error('Only image files are allowed!'), false);
-        }
-        cb(null, true);
-      },
-      limits: { fileSize: 2 * 1024 * 1024 }, // 2MB
-    }),
-  )
+  @UseInterceptors(AvatarUploadInterceptor())
   async uploadAvatar(
     @Request() req,
     @UploadedFile() file: Express.Multer.File,
   ) {
-    if (!file) {
-      throw new Error('No file uploaded or invalid file type.');
-    }
-    // Construct the public URL (assuming static serving from /uploads)
-    const avatarUrl = `/uploads/${file.filename}`;
-    await this.userService.update(req.user.id, { avatarUrl });
-    return { avatarUrl };
+    return this.avatarService.uploadAndSaveAvatar(req.user.id, file);
   }
 }

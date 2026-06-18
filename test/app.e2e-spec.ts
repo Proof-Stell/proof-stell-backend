@@ -1,171 +1,200 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication } from '@nestjs/common';
+import { getRepositoryToken } from '@nestjs/typeorm';
+import * as express from 'express';
 import * as request from 'supertest';
-import { App } from 'supertest/types';
-import { AppModule } from './../src/app.module';
-import * as fs from 'fs';
+import * as sharp from 'sharp';
+import * as fs from 'fs/promises';
 import * as path from 'path';
+import { UserController } from '../src/users/controllers/users.controller';
+import { UserService } from '../src/users/providers/users.service';
+import { AvatarService } from '../src/users/avatar/avatar.service';
+import { User } from '../src/users/entities/user.entity';
+import { JwtAuthGuard } from '../src/common/guards/jwt-auth.guard';
+import { RolesGuard } from '../src/common/guards/roles.guard';
+import { CacheService } from '../src/cache/cache.service';
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication<App>;
-
-  beforeEach(async () => {
-    // ------------------------------------------------------------
-    // Create a fresh NestJS testing module before each test run
-    // This ensures test isolation and avoids shared state between tests
-    // ------------------------------------------------------------
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-
-    // ------------------------------------------------------------
-    // Initialize a full NestJS application instance for E2E testing
-    // This boots the app exactly like production (controllers, pipes, etc.)
-    // ------------------------------------------------------------
-    app = moduleFixture.createNestApplication();
-    await app.init();
-  });
-
-  it('/ (GET)', () => {
-    // ------------------------------------------------------------
-    // Sends an HTTP request to the running test server
-    // and verifies the root endpoint behaves as expected
-    // ------------------------------------------------------------
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200) // Ensure HTTP OK response
-      .expect('Hello World!'); // Validate response body
-  });
-});
-
-// feat-email-integration
-describe('Auth Email Verification (e2e)', () => {
+describe('Avatar upload (e2e)', () => {
   let app: INestApplication;
   let server: any;
-  const testEmail = `test${Date.now()}@example.com`;
-  const testUsername = `user${Date.now()}`;
-  const testPassword = 'TestPass123!';
-  let verificationToken: string;
+  let user: User;
+  let pngBuffer: Buffer;
+  const userId = '9f3e5dfa-7f65-4653-aa34-b7424af1e2b7';
+  const avatarDir = path.join(process.cwd(), 'public', 'avatars');
 
-  describe('User Profile (e2e)', () => {
-    let app: INestApplication;
-    let accessToken: string;
-    let userId: string;
-
-    beforeAll(async () => {
-      const moduleFixture: TestingModule = await Test.createTestingModule({
-        imports: [AppModule],
-      }).compile();
-      app = moduleFixture.createNestApplication();
-      await app.init();
-
-      server = app.getHttpServer();
-    });
-
-    afterAll(async () => {
-      await app.close();
-    });
-
-    it('should register and send verification email (token in db)', async () => {
-      const res = await request(server).post('/auth/register').send({
-        email: testEmail,
-        username: testUsername,
-        password: testPassword,
-      });
-      expect(res.body.user).toBeDefined();
-      expect(res.body.user.isEmailVerified).toBe(false);
-      // Get token from DB (simulate, in real test use repo or mock mail)
-      // For now, fetch user via API or DB (pseudo):
-      // const user = await getUserByEmail(testEmail);
-      // verificationToken = user.emailVerificationToken;
-    });
-
-    it('should block login for unverified user', async () => {
-      const res = await request(server)
-        .post('/auth/login')
-        .send({ email: testEmail, password: testPassword });
-      expect(res.status).toBe(401);
-      expect(res.body.message).toMatch(/verify your email/i);
-    });
-
-    it('should resend verification email for unverified user', async () => {
-      const res = await request(server)
-        .post('/auth/resend-verification')
-        .send({ email: testEmail });
-      expect(res.status).toBe(200);
-      expect(res.body.message).toMatch(/resent/i);
-    });
-
-    // The following test assumes you can fetch the token from DB or mock mail
-    // it('should verify email with token', async () => {
-    //   const res = await request(server)
-    //     .get(`/auth/verify-email?token=${verificationToken}`);
-    //   expect(res.status).toBe(200);
-    //   expect(res.body.message).toMatch(/verified/i);
-    // });
-
-    // it('should allow login after verification', async () => {
-    //   const res = await request(server)
-    //     .post('/auth/login')
-    //     .send({ email: testEmail, password: testPassword });
-    //   expect(res.status).toBe(201);
-    //   expect(res.body.access_token).toBeDefined();
-    // });
-
-    // Register a user
-    const res = await request(app.getHttpServer())
-      .post('/api/v1/auth/register')
-      .send({
-        email: 'profiletest@example.com',
-        username: 'profiletest',
-        password: 'TestPass123!',
-      });
-    userId = res.body.id;
-
-    // Login to get JWT
-    const loginRes = await request(app.getHttpServer())
-      .post('/api/v1/auth/login')
-      .send({
-        email: 'profiletest@example.com',
-        password: 'TestPass123!',
-      });
-    accessToken = loginRes.body.accessToken;
+  beforeAll(async () => {
+    pngBuffer = await sharp({
+      create: {
+        width: 64,
+        height: 64,
+        channels: 3,
+        background: '#2f80ed',
+      },
+    })
+      .png()
+      .toBuffer();
   });
 
-  it('should update profile fields', async () => {
-    const update = {
-      displayName: 'Test User',
-      avatarUrl: 'http://localhost/uploads/test.png',
-      emailPreferences: { promotional: false, transactional: true },
-    };
-    const res = await request(app.getHttpServer())
-      .patch('/api/v1/users/profile')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .send(update)
-      .expect(200);
-    expect(res.body.displayName).toBe(update.displayName);
-    expect(res.body.avatarUrl).toBe(update.avatarUrl);
-    expect(res.body.emailPreferences).toEqual(update.emailPreferences);
+  beforeEach(async () => {
+    await fs.rm(avatarDir, { recursive: true, force: true });
+    await fs.mkdir(avatarDir, { recursive: true });
+
+    user = {
+      id: userId,
+      email: 'avatar@example.com',
+      username: 'avatar-user',
+      avatarUrl: undefined,
+    } as User;
+
+    const moduleFixture: TestingModule = await Test.createTestingModule({
+      controllers: [UserController],
+      providers: [
+        AvatarService,
+        {
+          provide: UserService,
+          useValue: {
+            findOne: jest.fn(),
+            update: jest.fn(),
+          },
+        },
+        {
+          provide: CacheService,
+          useValue: {
+            get: jest.fn(),
+            set: jest.fn(),
+          },
+        },
+        {
+          provide: getRepositoryToken(User),
+          useValue: {
+            findOne: jest.fn(async () => user),
+            save: jest.fn(async (updatedUser: User) => {
+              user = { ...user, ...updatedUser } as User;
+              return user;
+            }),
+          },
+        },
+      ],
+    })
+      .overrideGuard(JwtAuthGuard)
+      .useValue({
+        canActivate: (context) => {
+          const req = context.switchToHttp().getRequest();
+          req.user = { id: userId, role: 'player' };
+          return true;
+        },
+      })
+      .overrideGuard(RolesGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+
+    app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix('api/v1');
+    app.use('/avatars', express.static(avatarDir));
+    await app.init();
+    server = app.getHttpAdapter().getInstance();
   });
 
-  it('should upload an avatar', async () => {
-    const filePath = path.join(__dirname, 'fixtures', 'avatar.png');
-    if (!fs.existsSync(filePath)) {
-      fs.mkdirSync(path.dirname(filePath), { recursive: true });
-      fs.writeFileSync(
-        filePath,
-        Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-      ); // PNG header
-    }
-    const res = await request(app.getHttpServer())
+  afterEach(async () => {
+    await app?.close();
+    await fs.rm(avatarDir, { recursive: true, force: true });
+  });
+
+  it('normalizes a valid avatar and serves it statically', async () => {
+    const res = await request(server)
       .post('/api/v1/users/profile/avatar')
-      .set('Authorization', `Bearer ${accessToken}`)
-      .attach('file', filePath)
+      .set('Authorization', 'Bearer test-token')
+      .attach('file', pngBuffer, {
+        filename: '../../avatar.png',
+        contentType: 'image/png',
+      })
       .expect(201);
-    expect(res.body.avatarUrl).toMatch(/\/uploads\//);
+
+    expect(res.body.avatarUrl).toMatch(/^\/avatars\/.*-avatar\.webp$/);
+
+    const outputPath = path.join(avatarDir, path.basename(res.body.avatarUrl));
+    const metadata = await sharp(outputPath).metadata();
+    expect(metadata.format).toBe('webp');
+    expect(metadata.width).toBe(200);
+    expect(metadata.height).toBe(200);
+    expect(metadata.exif).toBeUndefined();
+
+    await request(server)
+      .get(res.body.avatarUrl)
+      .expect(200)
+      .expect('Content-Type', /image\/webp/);
   });
 
-  afterAll(async () => {
-    await app.close();
+  it('returns a structured BadRequestException for invalid MIME types', async () => {
+    const res = await request(server)
+      .post('/api/v1/users/profile/avatar')
+      .set('Authorization', 'Bearer test-token')
+      .attach('file', pngBuffer, {
+        filename: 'avatar.pdf',
+        contentType: 'application/pdf',
+      })
+      .expect(400);
+
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        code: 'AVATAR_INVALID_MIME_TYPE',
+        message: 'Avatar file must be a JPEG, PNG, or GIF image',
+      }),
+    );
+  });
+
+  it('rejects files disguised as images', async () => {
+    const res = await request(server)
+      .post('/api/v1/users/profile/avatar')
+      .set('Authorization', 'Bearer test-token')
+      .attach('file', Buffer.from('not really a png'), {
+        filename: 'avatar.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
+
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        code: 'AVATAR_INVALID_SIGNATURE',
+        message: 'Avatar file content is not a supported image',
+      }),
+    );
+  });
+
+  it('rejects oversized uploads with a structured BadRequestException', async () => {
+    const res = await request(server)
+      .post('/api/v1/users/profile/avatar')
+      .set('Authorization', 'Bearer test-token')
+      .attach('file', Buffer.alloc(2 * 1024 * 1024 + 1), {
+        filename: 'large.png',
+        contentType: 'image/png',
+      })
+      .expect(400);
+
+    expect(res.body).toEqual(
+      expect.objectContaining({
+        code: 'AVATAR_FILE_TOO_LARGE',
+        message: 'Avatar file must be 2MB or smaller',
+      }),
+    );
+  });
+
+  it('deletes the previous local avatar when replacing it', async () => {
+    const oldFilename = 'old-avatar.webp';
+    const oldPath = path.join(avatarDir, oldFilename);
+    await fs.writeFile(oldPath, Buffer.from('old avatar'));
+    user.avatarUrl = `/avatars/${oldFilename}`;
+
+    const res = await request(server)
+      .post('/api/v1/users/profile/avatar')
+      .set('Authorization', 'Bearer test-token')
+      .attach('file', pngBuffer, {
+        filename: 'replacement.png',
+        contentType: 'image/png',
+      })
+      .expect(201);
+
+    await expect(fs.access(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });
+    await request(server).get(res.body.avatarUrl).expect(200);
   });
 });

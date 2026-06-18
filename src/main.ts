@@ -77,8 +77,8 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix('api/v1');
 
-  // Serve static files from /uploads
-  app.use('/uploads', express.static(join(__dirname, '..', 'uploads')));
+  // Serve normalized avatar files only from the public avatar directory.
+  app.use('/avatars', express.static(join(process.cwd(), 'public', 'avatars')));
 
   await app.listen(configService.port);
 }

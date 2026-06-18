@@ -48,7 +48,10 @@ export class AuthController {
   @UseGuards(LocalAuthGuard)
   @Post('login')
   async login(@Body(ValidationPipe) loginDto: LoginDto, @Request() req) {
-    return this.authService.login(req.user);
+    return this.authService.login(req.user, {
+      ip: this.getClientIp(req),
+      userAgent: req.get?.('user-agent'),
+    });
   }
 
   @ApiOperation({ summary: 'Register new user' })
@@ -131,5 +134,16 @@ export class AuthController {
         .status(error.status || HttpStatus.BAD_REQUEST)
         .json({ message: error.message });
     }
+  }
+
+  private getClientIp(req): string {
+    const forwardedFor = req.headers?.['x-forwarded-for'];
+    if (typeof forwardedFor === 'string') {
+      return forwardedFor.split(',')[0].trim();
+    }
+    if (Array.isArray(forwardedFor) && forwardedFor[0]) {
+      return forwardedFor[0].split(',')[0].trim();
+    }
+    return req.ip || req.socket?.remoteAddress || 'unknown';
   }
 }

@@ -20,25 +20,32 @@ import { MailService } from 'src/mail/mail.service';
 import { addHours } from 'date-fns';
 import { AnalyticsService } from 'src/analytics/analytics.service';
 import { AnalyticsEvent } from 'src/analytics/analytics-event.enum';
+import { CacheService } from 'src/cache/cache.service';
+import { TypedConfigService } from 'src/common/config/typed-config.service';
+import { createHash } from 'crypto';
+
+interface LoginContext {
+  ip?: string;
+  userAgent?: string;
+}
+
+interface LockoutMetadata {
+  lockedUntil: number;
+  attempts: number;
+}
 
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly maxLoginAttempts = 5;
-  private readonly lockoutDurationMinutes = 15;
   private readonly jwtExpiresIn = '24h';
-
-  // In-memory store for failed attempts (in production, use Redis)
-  private failedAttempts = new Map<
-    string,
-    { count: number; lockedUntil?: Date }
-  >();
 
   constructor(
     private userService: UserService,
     private jwtService: JwtService,
     private readonly hashingService: HashingService,
     private readonly mailService: MailService,
+    private readonly cacheService: CacheService,
+    private readonly configService: TypedConfigService,
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analyticsService: AnalyticsService,
   ) {}
@@ -47,22 +54,29 @@ export class AuthService {
     email: string,
     password: string,
     clientIp?: string,
+    userAgent?: string,
   ): Promise<any> {
-    const normalizedEmail = email.toLowerCase().trim();
+    const context = this.buildLoginContext(clientIp, userAgent);
+    const normalizedEmail = this.normalizeEmail(email);
+    const lockoutKeys = this.buildLockoutKeys(
+      normalizedEmail,
+      context.ip,
+      context.userAgent,
+    );
 
     // Check if account is locked
-    await this.checkAccountLockout(normalizedEmail);
+    await this.checkAccountLockout(normalizedEmail, lockoutKeys, context);
 
     const user = await this.userService.findByEmail(normalizedEmail);
     if (!user) {
-      await this.recordFailedAttempt(normalizedEmail);
+      await this.recordFailedAttempt(normalizedEmail, lockoutKeys, context);
       this.logger.warn(
-        `Login attempt for non-existent user: ${normalizedEmail} from IP: ${clientIp}`,
+        `Failed login attempt for non-existent user: ${normalizedEmail} from IP: ${context.ip}`,
       );
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (!user.isActive) {
+    if (user.isActive === false) {
       this.logger.warn(`Login attempt for inactive user: ${normalizedEmail}`);
       throw new UnauthorizedException('Account is deactivated');
     }
@@ -76,21 +90,21 @@ export class AuthService {
       user.password,
     );
     if (!isMatch) {
-      await this.recordFailedAttempt(normalizedEmail);
+      await this.recordFailedAttempt(normalizedEmail, lockoutKeys, context);
       this.logger.warn(
-        `Failed login attempt for user: ${normalizedEmail} from IP: ${clientIp}`,
+        `Failed login attempt for user: ${normalizedEmail} from IP: ${context.ip}`,
       );
       throw new UnauthorizedException('Invalid credentials');
     }
 
     // Clear failed attempts on successful login
-    this.clearFailedAttempts(normalizedEmail);
+    await this.clearFailedAttempts(normalizedEmail, lockoutKeys, context);
     this.logger.log(`Successful login for user: ${normalizedEmail}`);
 
     return user;
   }
 
-  async login(user: any) {
+  async login(user: any, context?: LoginContext) {
     const payload = {
       email: user.email,
       sub: user.id,
@@ -197,50 +211,112 @@ export class AuthService {
     return true;
   }
 
-  private async checkAccountLockout(email: string): Promise<void> {
-    const attempts = this.failedAttempts.get(email);
-    if (attempts?.lockedUntil && attempts.lockedUntil > new Date()) {
-      const remainingMinutes = Math.ceil(
-        (attempts.lockedUntil.getTime() - Date.now()) / (1000 * 60),
+  private async checkAccountLockout(
+    email: string,
+    keys: { attemptsKey: string; lockoutKey: string },
+    context: Required<LoginContext>,
+  ): Promise<void> {
+    const lockout = await this.cacheService.get<LockoutMetadata>(
+      keys.lockoutKey,
+    );
+
+    if (lockout?.lockedUntil && lockout.lockedUntil > Date.now()) {
+      const remainingSeconds = Math.ceil(
+        (lockout.lockedUntil - Date.now()) / 1000,
       );
       this.logger.warn(
-        `Account locked for user: ${email}. Remaining: ${remainingMinutes} minutes`,
+        `Lockout bypass attempt for user: ${email} from IP: ${context.ip}. Remaining: ${remainingSeconds} seconds`,
       );
       throw new HttpException(
-        `Account temporarily locked due to too many failed login attempts. Try again in ${remainingMinutes} minutes.`,
+        `Account temporarily locked due to too many failed login attempts. Try again in ${Math.ceil(
+          remainingSeconds / 60,
+        )} minutes.`,
         HttpStatus.TOO_MANY_REQUESTS,
       );
     }
-  }
 
-  private async recordFailedAttempt(email: string): Promise<void> {
-    const attempts = this.failedAttempts.get(email) || { count: 0 };
-    attempts.count += 1;
-
-    if (attempts.count >= this.maxLoginAttempts) {
-      attempts.lockedUntil = new Date(
-        Date.now() + this.lockoutDurationMinutes * 60 * 1000,
-      );
-      this.logger.warn(
-        `Account locked for user: ${email} after ${attempts.count} failed attempts`,
+    if (lockout) {
+      await this.cacheService.del(keys.lockoutKey);
+      await this.cacheService.del(keys.attemptsKey);
+      this.logger.log(
+        `Lockout expiration for user: ${email} from IP: ${context.ip}`,
       );
     }
-
-    this.failedAttempts.set(email, attempts);
   }
 
-  private clearFailedAttempts(email: string): void {
-    this.failedAttempts.delete(email);
+  private async recordFailedAttempt(
+    email: string,
+    keys: { attemptsKey: string; lockoutKey: string },
+    context: Required<LoginContext>,
+  ): Promise<void> {
+    const attempts = await this.cacheService.increment(
+      keys.attemptsKey,
+      this.configService.authAttemptWindowSeconds,
+    );
+
+    this.logger.warn(
+      `Failed login attempt recorded for user: ${email} from IP: ${context.ip}. Attempts: ${attempts}`,
+    );
+
+    if (attempts >= this.configService.authMaxFailedAttempts) {
+      const lockout: LockoutMetadata = {
+        attempts,
+        lockedUntil:
+          Date.now() + this.configService.authLockoutDurationSeconds * 1000,
+      };
+
+      await this.cacheService.set(
+        keys.lockoutKey,
+        lockout,
+        this.getLockoutMetadataTtlSeconds(),
+      );
+      this.logger.warn(
+        `Lockout triggered for user: ${email} from IP: ${context.ip} after ${attempts} failed attempts`,
+      );
+    }
+  }
+
+  private async clearFailedAttempts(
+    email: string,
+    keys: { attemptsKey: string; lockoutKey: string },
+    context: Required<LoginContext>,
+  ): Promise<void> {
+    await Promise.all([
+      this.cacheService.del(keys.attemptsKey),
+      this.cacheService.del(keys.lockoutKey),
+    ]);
+    this.logger.log(
+      `Successful reset of failed login attempts for user: ${email} from IP: ${context.ip}`,
+    );
   }
 
   /**
    * Get remaining lockout time for an email
    */
-  getRemainingLockoutTime(email: string): number {
-    const attempts = this.failedAttempts.get(email);
-    if (attempts?.lockedUntil && attempts.lockedUntil > new Date()) {
-      return Math.ceil(
-        (attempts.lockedUntil.getTime() - Date.now()) / (1000 * 60),
+  async getRemainingLockoutTime(
+    email: string,
+    clientIp?: string,
+    userAgent?: string,
+  ): Promise<number> {
+    const context = this.buildLoginContext(clientIp, userAgent);
+    const keys = this.buildLockoutKeys(
+      this.normalizeEmail(email),
+      context.ip,
+      context.userAgent,
+    );
+    const lockout = await this.cacheService.get<LockoutMetadata>(
+      keys.lockoutKey,
+    );
+    if (lockout?.lockedUntil && lockout.lockedUntil > Date.now()) {
+      return Math.ceil((lockout.lockedUntil - Date.now()) / 1000);
+    }
+    if (lockout) {
+      await this.cacheService.del(keys.lockoutKey);
+      await this.cacheService.del(keys.attemptsKey);
+      this.logger.log(
+        `Lockout expiration for user: ${this.normalizeEmail(email)} from IP: ${
+          context.ip
+        }`,
       );
     }
     return 0;
@@ -249,8 +325,55 @@ export class AuthService {
   /**
    * Manually unlock an account (admin function)
    */
-  unlockAccount(email: string): void {
-    this.failedAttempts.delete(email);
-    this.logger.log(`Account manually unlocked for user: ${email}`);
+  async unlockAccount(
+    email: string,
+    clientIp?: string,
+    userAgent?: string,
+  ): Promise<void> {
+    const context = this.buildLoginContext(clientIp, userAgent);
+    const normalizedEmail = this.normalizeEmail(email);
+    const keys = this.buildLockoutKeys(
+      normalizedEmail,
+      context.ip,
+      context.userAgent,
+    );
+    await this.clearFailedAttempts(normalizedEmail, keys, context);
+    this.logger.log(`Account manually unlocked for user: ${normalizedEmail}`);
+  }
+
+  private normalizeEmail(email: string): string {
+    return email.toLowerCase().trim();
+  }
+
+  private buildLoginContext(
+    ip?: string,
+    userAgent?: string,
+  ): Required<LoginContext> {
+    return {
+      ip: (ip || 'unknown').trim() || 'unknown',
+      userAgent: (userAgent || 'unknown').trim() || 'unknown',
+    };
+  }
+
+  private buildLockoutKeys(email: string, ip: string, userAgent?: string) {
+    const deviceHash = this.hashDeviceMetadata(userAgent);
+    return {
+      attemptsKey: `auth:attempts:${email}:${ip}:${deviceHash}`,
+      lockoutKey: `auth:lockout:${email}:${ip}:${deviceHash}`,
+    };
+  }
+
+  private hashDeviceMetadata(userAgent?: string): string {
+    return createHash('sha256')
+      .update((userAgent || 'unknown').trim().toLowerCase())
+      .digest('hex')
+      .slice(0, 16);
+  }
+
+  private getLockoutMetadataTtlSeconds(): number {
+    return (
+      this.configService.authLockoutDurationSeconds +
+      this.configService.authAttemptWindowSeconds
+    );
   }
 }

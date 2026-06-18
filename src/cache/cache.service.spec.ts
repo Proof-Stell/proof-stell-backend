@@ -7,7 +7,7 @@ describe('CacheService', () => {
   let service: CacheService;
   let cacheManager: any;
 
-  const mockCacheManager = {
+  const mockCacheManager: any = {
     get: jest.fn(),
     set: jest.fn(),
     del: jest.fn(),
@@ -30,6 +30,7 @@ describe('CacheService', () => {
 
     // Clear all mocks before each test
     jest.clearAllMocks();
+    delete mockCacheManager.store;
   });
 
   afterEach(() => {
@@ -86,7 +87,7 @@ describe('CacheService', () => {
 
       await service.set(key, value, ttl);
 
-      expect(mockCacheManager.set).toHaveBeenCalledWith(key, value, { ttl });
+      expect(mockCacheManager.set).toHaveBeenCalledWith(key, value, ttl);
     });
 
     it('should set value without TTL', async () => {
@@ -95,9 +96,41 @@ describe('CacheService', () => {
 
       await service.set(key, value);
 
-      expect(mockCacheManager.set).toHaveBeenCalledWith(key, value, {
-        ttl: undefined,
-      });
+      expect(mockCacheManager.set).toHaveBeenCalledWith(key, value, undefined);
+    });
+  });
+
+  describe('increment', () => {
+    it('should atomically increment using redis client when available', async () => {
+      const redisClient = {
+        incr: jest.fn().mockResolvedValue(1),
+        expire: jest.fn().mockResolvedValue(1),
+      };
+      mockCacheManager.store = {
+        getClient: jest.fn().mockReturnValue(redisClient),
+      };
+
+      const result = await service.increment('auth:attempts:key', 900);
+
+      expect(result).toBe(1);
+      expect(redisClient.incr).toHaveBeenCalledWith('auth:attempts:key');
+      expect(redisClient.expire).toHaveBeenCalledWith('auth:attempts:key', 900);
+      expect(mockCacheManager.set).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to cache get/set when redis client is unavailable', async () => {
+      delete mockCacheManager.store;
+      mockCacheManager.get.mockResolvedValue(2);
+
+      const result = await service.increment('auth:attempts:key', 900);
+
+      expect(result).toBe(3);
+      expect(mockCacheManager.get).toHaveBeenCalledWith('auth:attempts:key');
+      expect(mockCacheManager.set).toHaveBeenCalledWith(
+        'auth:attempts:key',
+        3,
+        900,
+      );
     });
   });
 
@@ -112,10 +145,10 @@ describe('CacheService', () => {
   });
 
   describe('reset', () => {
-    it('should reset all cache entries', async () => {
+    it('should no-op because cache-manager v6 does not expose reset', async () => {
       await service.reset();
 
-      expect(mockCacheManager.reset).toHaveBeenCalled();
+      expect(mockCacheManager.reset).not.toHaveBeenCalled();
     });
   });
 

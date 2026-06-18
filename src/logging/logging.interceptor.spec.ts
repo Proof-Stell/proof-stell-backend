@@ -48,6 +48,8 @@ describe('LoggingInterceptor', () => {
       url: '/test',
       body: { test: 'data' },
       user: { id: 'user123' },
+      headers: { 'user-agent': 'jest' },
+      ip: '127.0.0.1',
     };
 
     const mockResponse = {
@@ -67,18 +69,22 @@ describe('LoggingInterceptor', () => {
 
     mockClsService.get.mockReturnValue('session123');
 
-    interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe(() => {
-      expect(mockLogger.info).toHaveBeenCalledWith('HTTP Request', {
-        method: 'GET',
-        url: '/test',
-        statusCode: 200,
-        duration: expect.stringMatching(/\d+ms/),
-        userId: 'user123',
-        session: 'session123',
-        body: { test: 'data' },
+    interceptor
+      .intercept(mockExecutionContext, mockCallHandler)
+      .subscribe(() => {
+        expect(mockLogger.info).toHaveBeenCalledWith('HTTP Request', {
+          method: 'GET',
+          url: '/test',
+          statusCode: 200,
+          duration: expect.stringMatching(/\d+ms/),
+          userId: 'user123',
+          session: 'session123',
+          ip: '127.0.0.1',
+          userAgent: 'jest',
+          body: { test: 'data' },
+        });
+        done();
       });
-      done();
-    });
   });
 
   it('should handle anonymous users', (done) => {
@@ -87,6 +93,8 @@ describe('LoggingInterceptor', () => {
       url: '/api/test',
       body: {},
       user: null,
+      headers: {},
+      ip: '127.0.0.1',
     };
 
     const mockResponse = {
@@ -104,17 +112,59 @@ describe('LoggingInterceptor', () => {
       handle: () => of('test response'),
     } as CallHandler;
 
-    interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe(() => {
-      expect(mockLogger.info).toHaveBeenCalledWith('HTTP Request', {
-        method: 'POST',
-        url: '/api/test',
-        statusCode: 201,
-        duration: expect.stringMatching(/\d+ms/),
-        userId: 'anonymous',
-        session: undefined,
-        body: {},
+    interceptor
+      .intercept(mockExecutionContext, mockCallHandler)
+      .subscribe(() => {
+        expect(mockLogger.info).toHaveBeenCalledWith('HTTP Request', {
+          method: 'POST',
+          url: '/api/test',
+          statusCode: 201,
+          duration: expect.stringMatching(/\d+ms/),
+          userId: 'anonymous',
+          session: undefined,
+          ip: '127.0.0.1',
+          userAgent: undefined,
+          body: {},
+        });
+        done();
       });
-      done();
-    });
+  });
+
+  it('should redact sensitive auth request bodies', (done) => {
+    const mockRequest = {
+      method: 'POST',
+      url: '/auth/login',
+      body: { email: 'test@example.com', password: 'secret' },
+      user: null,
+      headers: { 'x-forwarded-for': '203.0.113.10, 10.0.0.1' },
+    };
+
+    const mockResponse = {
+      statusCode: 401,
+    };
+
+    const mockExecutionContext = {
+      switchToHttp: () => ({
+        getRequest: () => mockRequest,
+        getResponse: () => mockResponse,
+      }),
+    } as ExecutionContext;
+
+    const mockCallHandler = {
+      handle: () => of('test response'),
+    } as CallHandler;
+
+    interceptor
+      .intercept(mockExecutionContext, mockCallHandler)
+      .subscribe(() => {
+        expect(mockLogger.info).toHaveBeenCalledWith(
+          'HTTP Request',
+          expect.objectContaining({
+            ip: '203.0.113.10',
+            body: '[REDACTED]',
+          }),
+        );
+        done();
+      });
   });
 });

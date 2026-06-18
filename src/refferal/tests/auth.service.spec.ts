@@ -65,7 +65,9 @@ describe('AuthService', () => {
       const referrer = { id: 'referrer-id' } as User;
 
       jest.spyOn(userRepository, 'findOne').mockResolvedValue(null);
-      (bcrypt.hash as jest.Mock).mockResolvedValue(hashedPassword);
+      (bcrypt.hash as jest.MockedFunction<any>).mockResolvedValue(
+        hashedPassword,
+      );
       jest
         .spyOn(referralService, 'generateUniqueReferralCode')
         .mockResolvedValue(referralCode);
@@ -116,7 +118,9 @@ describe('AuthService', () => {
       } as User;
 
       jest.spyOn(userRepository, 'findOne').mockResolvedValue(null);
-      (bcrypt.hash as jest.Mock).mockResolvedValue(hashedPassword);
+      (bcrypt.hash as jest.MockedFunction<any>).mockResolvedValue(
+        hashedPassword,
+      );
       jest
         .spyOn(referralService, 'generateUniqueReferralCode')
         .mockResolvedValue(referralCode);

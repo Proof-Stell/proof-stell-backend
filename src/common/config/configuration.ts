@@ -10,6 +10,18 @@ export default registerAs('app', () => ({
     process.env.LEADERBOARD_RECALCULATION_STRATEGY || 'batch',
   redisHost: process.env.REDIS_HOST || 'localhost',
   redisPort: parseInt(process.env.REDIS_PORT || '6379', 10),
+  authMaxFailedAttempts: parseInt(
+    process.env.AUTH_MAX_FAILED_ATTEMPTS || '5',
+    10,
+  ),
+  authLockoutDurationSeconds: parseInt(
+    process.env.AUTH_LOCKOUT_DURATION_SECONDS || '900',
+    10,
+  ),
+  authAttemptWindowSeconds: parseInt(
+    process.env.AUTH_ATTEMPT_WINDOW_SECONDS || '900',
+    10,
+  ),
   starknetPrivateKey: process.env.STARKNET_PRIVATE_KEY,
   starknetAccountAddress: process.env.STARKNET_ACCOUNT_ADDRESS,
   mintContractAddress: process.env.MINT_CONTRACT_ADDRESS,

@@ -5,11 +5,16 @@ import { UserService } from 'src/users/providers/users.service';
 import { Role } from 'src/common/enums/role.enum';
 import { MailService } from 'src/mail/mail.service';
 import { HashingService } from './hashing.service';
+import { CacheService } from 'src/cache/cache.service';
+import { TypedConfigService } from 'src/common/config/typed-config.service';
+import { AnalyticsService } from 'src/analytics/analytics.service';
+import { validationSchema } from 'src/common/config/validation';
 
 describe('AuthService', () => {
   let service: AuthService;
   let userService: UserService;
   let jwtService: JwtService;
+  let cacheStore: Map<string, { value: unknown; expiresAt?: number }>;
 
   const mockUserService = {
     validateUser: jest.fn(),
@@ -37,7 +42,61 @@ describe('AuthService', () => {
     track: jest.fn(),
   };
 
+  const mockConfigService = {
+    get authMaxFailedAttempts() {
+      return 5;
+    },
+    get authLockoutDurationSeconds() {
+      return 900;
+    },
+    get authAttemptWindowSeconds() {
+      return 900;
+    },
+  };
+
+  const createCacheServiceMock = () => ({
+    get: jest.fn(async (key: string) => {
+      const entry = cacheStore.get(key);
+      if (!entry) return undefined;
+      if (entry.expiresAt && entry.expiresAt <= Date.now()) {
+        cacheStore.delete(key);
+        return undefined;
+      }
+      return entry.value;
+    }),
+    set: jest.fn(async (key: string, value: unknown, ttl?: number) => {
+      cacheStore.set(key, {
+        value,
+        expiresAt: ttl ? Date.now() + ttl * 1000 : undefined,
+      });
+    }),
+    del: jest.fn(async (key: string) => {
+      cacheStore.delete(key);
+    }),
+    increment: jest.fn(async (key: string, ttl?: number) => {
+      const entry = cacheStore.get(key);
+      const current =
+        entry && (!entry.expiresAt || entry.expiresAt > Date.now())
+          ? Number(entry.value)
+          : 0;
+      const next = current + 1;
+      cacheStore.set(key, {
+        value: next,
+        expiresAt:
+          entry?.expiresAt && entry.expiresAt > Date.now()
+            ? entry.expiresAt
+            : ttl
+              ? Date.now() + ttl * 1000
+              : undefined,
+      });
+      return next;
+    }),
+  });
+
   beforeEach(async () => {
+    cacheStore = new Map();
+    const cacheServiceMock = createCacheServiceMock();
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AuthService,
@@ -58,7 +117,15 @@ describe('AuthService', () => {
           useValue: mockHashingService,
         },
         {
-          provide: 'AnalyticsService',
+          provide: CacheService,
+          useValue: cacheServiceMock,
+        },
+        {
+          provide: TypedConfigService,
+          useValue: mockConfigService,
+        },
+        {
+          provide: AnalyticsService,
           useValue: mockAnalyticsService,
         },
       ],
@@ -205,7 +272,7 @@ describe('AuthService', () => {
       mockHashingService.comparePassword.mockResolvedValue(false);
 
       await expect(service.validateUser(email, password)).rejects.toThrow(
-        'Unauthorized',
+        'Invalid credentials',
       );
     });
   });
@@ -269,9 +336,12 @@ describe('AuthService', () => {
 
   describe('Security Features', () => {
     describe('Account Lockout', () => {
-      beforeEach(() => {
+      const ip = '203.0.113.10';
+      const userAgent = 'Jest Browser';
+
+      beforeEach(async () => {
         // Reset any existing lockout state
-        service.unlockAccount('test@example.com');
+        await service.unlockAccount('test@example.com', ip, userAgent);
       });
 
       it('should lock account after 5 failed attempts', async () => {
@@ -281,7 +351,7 @@ describe('AuthService', () => {
         // Attempt 5 failed logins
         for (let i = 0; i < 5; i++) {
           try {
-            await service.validateUser(email, 'wrong-password');
+            await service.validateUser(email, 'wrong-password', ip, userAgent);
           } catch (error) {
             expect(error.message).toBe('Invalid credentials');
           }
@@ -289,8 +359,25 @@ describe('AuthService', () => {
 
         // 6th attempt should throw TooManyRequestsException
         await expect(
-          service.validateUser(email, 'wrong-password'),
+          service.validateUser(email, 'wrong-password', ip, userAgent),
         ).rejects.toThrow('Account temporarily locked');
+      });
+
+      it('should increment failed attempts in shared cache', async () => {
+        const email = 'test@example.com';
+        mockUserService.findByEmail.mockResolvedValue(null);
+
+        await expect(
+          service.validateUser(email, 'wrong-password', ip, userAgent),
+        ).rejects.toThrow('Invalid credentials');
+
+        expect(
+          Array.from(cacheStore.entries()).some(
+            ([key, entry]) =>
+              key.startsWith('auth:attempts:test@example.com:203.0.113.10:') &&
+              entry.value === 1,
+          ),
+        ).toBe(true);
       });
 
       it('should clear failed attempts on successful login', async () => {
@@ -307,7 +394,7 @@ describe('AuthService', () => {
         mockUserService.findByEmail.mockResolvedValue(null);
         for (let i = 0; i < 3; i++) {
           try {
-            await service.validateUser(email, 'wrong-password');
+            await service.validateUser(email, 'wrong-password', ip, userAgent);
           } catch (error) {
             // Expected to fail
           }
@@ -317,11 +404,23 @@ describe('AuthService', () => {
         mockUserService.findByEmail.mockResolvedValue(user);
         mockHashingService.comparePassword.mockResolvedValue(true);
 
-        const result = await service.validateUser(email, 'correct-password');
+        const result = await service.validateUser(
+          email,
+          'correct-password',
+          ip,
+          userAgent,
+        );
         expect(result).toEqual(user);
 
         // Verify failed attempts were cleared by checking lockout time
-        expect(service.getRemainingLockoutTime(email)).toBe(0);
+        await expect(
+          service.getRemainingLockoutTime(email, ip, userAgent),
+        ).resolves.toBe(0);
+        expect(
+          Array.from(cacheStore.keys()).some((key) =>
+            key.startsWith('auth:attempts:test@example.com:203.0.113.10:'),
+          ),
+        ).toBe(false);
       });
 
       it('should return remaining lockout time', async () => {
@@ -331,15 +430,19 @@ describe('AuthService', () => {
         // Lock the account
         for (let i = 0; i < 5; i++) {
           try {
-            await service.validateUser(email, 'wrong-password');
+            await service.validateUser(email, 'wrong-password', ip, userAgent);
           } catch (error) {
             // Expected to fail
           }
         }
 
-        const remainingTime = service.getRemainingLockoutTime(email);
+        const remainingTime = await service.getRemainingLockoutTime(
+          email,
+          ip,
+          userAgent,
+        );
         expect(remainingTime).toBeGreaterThan(0);
-        expect(remainingTime).toBeLessThanOrEqual(15); // 15 minutes max
+        expect(remainingTime).toBeLessThanOrEqual(900);
       });
 
       it('should allow manual account unlock', async () => {
@@ -349,22 +452,144 @@ describe('AuthService', () => {
         // Lock the account
         for (let i = 0; i < 5; i++) {
           try {
-            await service.validateUser(email, 'wrong-password');
+            await service.validateUser(email, 'wrong-password', ip, userAgent);
           } catch (error) {
             // Expected to fail
           }
         }
 
         // Verify account is locked
-        await expect(service.validateUser(email, 'password')).rejects.toThrow(
-          'Account temporarily locked',
-        );
+        await expect(
+          service.validateUser(email, 'password', ip, userAgent),
+        ).rejects.toThrow('Account temporarily locked');
 
         // Unlock account manually
-        service.unlockAccount(email);
+        await service.unlockAccount(email, ip, userAgent);
 
         // Verify lockout time is cleared
-        expect(service.getRemainingLockoutTime(email)).toBe(0);
+        await expect(
+          service.getRemainingLockoutTime(email, ip, userAgent),
+        ).resolves.toBe(0);
+      });
+
+      it('should expire lockout state after configured duration', async () => {
+        jest.useFakeTimers({ now: new Date('2026-01-01T00:00:00Z') });
+        const email = 'expired@example.com';
+        mockUserService.findByEmail.mockResolvedValue(null);
+
+        for (let i = 0; i < 5; i++) {
+          await expect(
+            service.validateUser(email, 'wrong-password', ip, userAgent),
+          ).rejects.toThrow('Invalid credentials');
+        }
+
+        jest.advanceTimersByTime(901_000);
+
+        await expect(
+          service.getRemainingLockoutTime(email, ip, userAgent),
+        ).resolves.toBe(0);
+
+        jest.useRealTimers();
+      });
+
+      it('should share lockout state across service instances', async () => {
+        const email = 'distributed@example.com';
+        mockUserService.findByEmail.mockResolvedValue(null);
+
+        for (let i = 0; i < 5; i++) {
+          await expect(
+            service.validateUser(email, 'wrong-password', ip, userAgent),
+          ).rejects.toThrow('Invalid credentials');
+        }
+
+        const secondService = new AuthService(
+          mockUserService as any,
+          mockJwtService as any,
+          mockHashingService as any,
+          mockMailService as any,
+          createCacheServiceMock() as any,
+          mockConfigService as any,
+          mockAnalyticsService as any,
+        );
+
+        await expect(
+          secondService.validateUser(email, 'wrong-password', ip, userAgent),
+        ).rejects.toThrow('Account temporarily locked');
+      });
+
+      it('should isolate different IP and device combinations', async () => {
+        const email = 'risk@example.com';
+        mockUserService.findByEmail.mockResolvedValue(null);
+
+        for (let i = 0; i < 5; i++) {
+          await expect(
+            service.validateUser(email, 'wrong-password', ip, userAgent),
+          ).rejects.toThrow('Invalid credentials');
+        }
+
+        await expect(
+          service.validateUser(
+            email,
+            'wrong-password',
+            '198.51.100.77',
+            userAgent,
+          ),
+        ).rejects.toThrow('Invalid credentials');
+
+        await expect(
+          service.validateUser(email, 'wrong-password', ip, 'Different Device'),
+        ).rejects.toThrow('Invalid credentials');
+      });
+
+      it('should prevent lockout bypass attempts before credential validation', async () => {
+        const email = 'bypass@example.com';
+        mockUserService.findByEmail.mockResolvedValue(null);
+
+        for (let i = 0; i < 5; i++) {
+          await expect(
+            service.validateUser(email, 'wrong-password', ip, userAgent),
+          ).rejects.toThrow('Invalid credentials');
+        }
+        mockUserService.findByEmail.mockClear();
+
+        await expect(
+          service.validateUser(email, 'correct-password', ip, userAgent),
+        ).rejects.toThrow('Account temporarily locked');
+        expect(mockUserService.findByEmail).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('Configuration Validation', () => {
+      it('should reject invalid auth lockout configuration values', () => {
+        const { error } = validationSchema.validate({
+          NODE_ENV: 'test',
+          DATABASE_URL: 'postgres://localhost/test',
+          JWT_SECRET: 'secret',
+          AUTH_MAX_FAILED_ATTEMPTS: 0,
+          AUTH_LOCKOUT_DURATION_SECONDS: -1,
+          AUTH_ATTEMPT_WINDOW_SECONDS: 'abc',
+          STARKNET_PRIVATE_KEY: 'private',
+          STARKNET_ACCOUNT_ADDRESS: 'account',
+          MINT_CONTRACT_ADDRESS: 'mint',
+        });
+
+        expect(error).toBeDefined();
+      });
+
+      it('should provide reasonable auth lockout defaults', () => {
+        const { value, error } = validationSchema.validate({
+          NODE_ENV: 'test',
+          DATABASE_URL: 'postgres://localhost/test',
+          JWT_SECRET: 'secret',
+          STARKNET_PRIVATE_KEY: 'private',
+          STARKNET_ACCOUNT_ADDRESS: 'account',
+          MINT_CONTRACT_ADDRESS: 'mint',
+        });
+
+        expect(error).toBeUndefined();
+        expect(value.AUTH_MAX_FAILED_ATTEMPTS).toBe(5);
+        expect(value.AUTH_LOCKOUT_DURATION_SECONDS).toBe(900);
+        expect(value.AUTH_ATTEMPT_WINDOW_SECONDS).toBe(900);
       });
     });
 

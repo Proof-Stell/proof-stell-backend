@@ -1,8 +1,7 @@
 import { Module, Global } from '@nestjs/common';
 import { CacheModule as NestCacheModule } from '@nestjs/cache-manager';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
 import * as redisStore from 'cache-manager-ioredis';
-import { TypedConfigService } from '../common/config/typed-config.service';
 import { CacheService } from './cache.service';
 import { CacheInterceptor } from './interceptors/cache.interceptor';
 import { CacheController } from './cache.controller';
@@ -13,10 +12,10 @@ import { CacheController } from './cache.controller';
     NestCacheModule.registerAsync({
       imports: [ConfigModule],
       isGlobal: true,
-      useFactory: (configService: TypedConfigService) => ({
+      useFactory: (configService: ConfigService) => ({
         store: redisStore,
-        host: configService.redisHost,
-        port: configService.redisPort,
+        host: configService.get<string>('app.redisHost', 'localhost'),
+        port: configService.get<number>('app.redisPort', 6379),
         ttl: 300, // Default 5 minutes TTL
         max: 1000, // Maximum number of items in cache
         keyPrefix: 'Proof-Stell:', // Prefix for all cache keys
@@ -30,7 +29,7 @@ import { CacheController } from './cache.controller';
         serialize: JSON.stringify,
         deserialize: JSON.parse,
       }),
-      inject: [TypedConfigService],
+      inject: [ConfigService],
     }),
   ],
   controllers: [CacheController],

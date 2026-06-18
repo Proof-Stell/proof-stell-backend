@@ -10,6 +10,9 @@ export interface AppConfig {
   leaderboardRecalculationStrategy: string;
   redisHost: string;
   redisPort: number;
+  authMaxFailedAttempts: number;
+  authLockoutDurationSeconds: number;
+  authAttemptWindowSeconds: number;
   starknetPrivateKey: string;
   starknetAccountAddress: string;
   mintContractAddress: string;
@@ -36,6 +39,18 @@ export class TypedConfigService {
       ),
       redisHost: this.configService.get<string>('app.redisHost', 'localhost'),
       redisPort: this.configService.get<number>('app.redisPort', 6379),
+      authMaxFailedAttempts: this.configService.get<number>(
+        'app.authMaxFailedAttempts',
+        5,
+      ),
+      authLockoutDurationSeconds: this.configService.get<number>(
+        'app.authLockoutDurationSeconds',
+        900,
+      ),
+      authAttemptWindowSeconds: this.configService.get<number>(
+        'app.authAttemptWindowSeconds',
+        900,
+      ),
       starknetPrivateKey: this.configService.get<string>(
         'app.starknetPrivateKey',
       ),
@@ -73,6 +88,15 @@ export class TypedConfigService {
   }
   get redisPort() {
     return this.app.redisPort;
+  }
+  get authMaxFailedAttempts() {
+    return this.app.authMaxFailedAttempts;
+  }
+  get authLockoutDurationSeconds() {
+    return this.app.authLockoutDurationSeconds;
+  }
+  get authAttemptWindowSeconds() {
+    return this.app.authAttemptWindowSeconds;
   }
   get starknetPrivateKey() {
     return this.app.starknetPrivateKey;

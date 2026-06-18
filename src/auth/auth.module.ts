@@ -10,6 +10,8 @@ import { AuthController } from './controllers/auth.controller';
 import { AuthService } from './providers/auth.service';
 import { HashingService } from './providers/hashing.service';
 import { RolesGuard } from 'src/common/guards/roles.guard';
+import { CacheModule } from 'src/cache/cache.module';
+import { TypedConfigService } from 'src/common/config/typed-config.service';
 
 @Module({
   imports: [
@@ -17,6 +19,7 @@ import { RolesGuard } from 'src/common/guards/roles.guard';
     UserModule,
     PassportModule,
     AnalyticsModule,
+    CacheModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -35,6 +38,7 @@ import { RolesGuard } from 'src/common/guards/roles.guard';
     JwtStrategy,
     HashingService,
     RolesGuard,
+    TypedConfigService,
   ],
   exports: [AuthService, HashingService],
 })

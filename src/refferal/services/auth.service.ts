@@ -1,13 +1,15 @@
 import { Injectable, ConflictException } from '@nestjs/common';
+import { InjectRepository } from '@nestjs/typeorm';
 import type { Repository } from 'typeorm';
-import type { User } from '../entities/user.entity';
+import { User } from '../entities/user.entity';
 import type { RegisterDto } from '../dto/auth.dto';
-import type { ReferralService } from './referral.service';
+import { ReferralService } from './referral.service';
 import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class AuthService {
   constructor(
+    @InjectRepository(User)
     private userRepository: Repository<User>,
     private referralService: ReferralService,
   ) {}

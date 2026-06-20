@@ -1,60 +1,93 @@
-import { Controller, Get, UseGuards, Query, Req, Logger } from '@nestjs/common';
-import { AdminGuard } from './guards/admin.guard';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { AuthGuard } from '../auth/guards/auth.guard';
+import { RolesGuard } from '../auth/guards/roles.guard';
+import { Roles } from '../common/decorators/roles.decorator';
+import { Role } from '../common/enums/role.enum';
 import { MetricsService } from './services/metrics.service';
 import { AdminService } from './admin.service';
-import { Request } from 'express';
+import { AuditLogInterceptor } from '../audit/interceptors/audit-log.interceptor';
+import { AuditLog } from '../audit/decorators/audit-log.decorator';
 
+const ADMIN_RESOURCE = 'admin';
+
+/**
+ * Admin endpoints now share the same AuthGuard → RolesGuard → Admin role →
+ * AuditLog stack so that:
+ *  - access requires a valid JWT (AuthGuard),
+ *  - the JWT subject must carry the ADMIN role (RolesGuard + @Roles(ADMIN)),
+ *  - and every successful/failed call writes an audit_log row carrying the
+ *    action type, method/URL, response size, and duration.
+ *
+ * The existing /admin/challenges/daily/reset endpoint in
+ * src/admin/controllers/challenge-participation.controller.ts already owns the
+ * daily-reset path under the AUDITed stack; this controller intentionally
+ * does NOT add a duplicate handler.
+ */
 @Controller('admin')
-@UseGuards(AdminGuard)
+@UseGuards(AuthGuard, RolesGuard)
+@UseInterceptors(AuditLogInterceptor)
+@Roles(Role.ADMIN)
 export class AdminController {
-  private readonly logger = new Logger(AdminController.name);
-
   constructor(
     private readonly metricsService: MetricsService,
     private readonly adminService: AdminService,
   ) {}
 
   @Get('dashboard')
-  async getDashboard(@Req() req: Request) {
-    this.logAdminActivity(req.user, 'DASHBOARD_ACCESS');
+  @AuditLog({
+    actionType: 'DASHBOARD_ACCESS',
+    resource: ADMIN_RESOURCE,
+    includeParams: true,
+  })
+  async getDashboard() {
     return this.adminService.getDashboardData();
   }
 
   @Get('metrics/users/active')
-  async getActiveUsers(
-    @Query('hours') hours: string = '24',
-    @Req() req: Request,
-  ) {
-    this.logAdminActivity(req.user, 'ACTIVE_USERS_VIEW');
+  @AuditLog({
+    actionType: 'ACTIVE_USERS_VIEW',
+    resource: ADMIN_RESOURCE,
+    includeParams: true,
+  })
+  async getActiveUsers(@Query('hours') hours: string = '24') {
     return this.metricsService.getActiveUsers(parseInt(hours));
   }
 
   @Get('metrics/games/summary')
-  async getGamesSummary(
-    @Query('days') days: string = '7',
-    @Req() req: Request,
-  ) {
-    this.logAdminActivity(req.user, 'GAMES_SUMMARY_VIEW');
+  @AuditLog({
+    actionType: 'GAMES_SUMMARY_VIEW',
+    resource: ADMIN_RESOURCE,
+    includeParams: true,
+  })
+  async getGamesSummary(@Query('days') days: string = '7') {
     return this.metricsService.getGamesSummary(parseInt(days));
   }
 
   @Get('metrics/system/health')
-  async getSystemHealth(@Req() req: Request) {
-    this.logAdminActivity(req.user, 'SYSTEM_HEALTH_VIEW');
+  @AuditLog({
+    actionType: 'SYSTEM_HEALTH_VIEW',
+    resource: ADMIN_RESOURCE,
+  })
+  async getSystemHealth() {
     return this.metricsService.getSystemHealth();
   }
 
   @Get('export/csv')
+  @AuditLog({
+    actionType: 'EXPORT_CSV',
+    resource: ADMIN_RESOURCE,
+    includeParams: true,
+  })
   async exportDataCsv(
     @Query('type') type: string,
     @Query('days') days: string = '30',
-    @Req() req: Request,
   ) {
-    this.logAdminActivity(req.user, `EXPORT_CSV_${type.toUpperCase()}`);
     return this.adminService.exportToCsv(type, parseInt(days));
-  }
-
-  private logAdminActivity(user: any, action: string) {
-    this.logger.log(`Admin activity: ${user?.email} - ${action}`);
   }
 }

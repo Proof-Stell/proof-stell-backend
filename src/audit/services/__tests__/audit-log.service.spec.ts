@@ -19,6 +19,7 @@ describe('AuditLogService', () => {
     userAgent: 'Mozilla/5.0',
     resource: 'auth',
     result: 'SUCCESS',
+    errorMessage: undefined as unknown as string,
   };
 
   beforeEach(async () => {

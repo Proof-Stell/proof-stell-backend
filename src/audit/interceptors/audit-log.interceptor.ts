@@ -6,8 +6,8 @@ import {
 } from '@nestjs/common';
 import type { Observable } from 'rxjs';
 import { tap, catchError } from 'rxjs/operators';
-import type { Reflector } from '@nestjs/core';
-import type { AuditLogService } from '../services/audit-log.service';
+import { Reflector } from '@nestjs/core';
+import { AuditLogService } from '../services/audit-log.service';
 import type { Request } from 'express';
 
 export const AUDIT_LOG_KEY = 'auditLog';
@@ -39,7 +39,13 @@ export class AuditLogInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest<Request>();
     const user = request.user as any; // Assuming user is attached to request
 
-    if (!user?.id) {
+    // The JWT subject is usually exposed as `sub` (AuthGuard sets
+    // `request.user = jwt payload`). Some auth pipelines expose it as `id`
+    // instead, so accept either; fall through silently when neither is set
+    // (e.g. unauthenticated probe routes that nevertheless carry @AuditLog).
+    const userId: string | undefined = user?.id ?? user?.sub;
+
+    if (!userId) {
       return next.handle();
     }
 
@@ -50,7 +56,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         this.logAction(
           auditMetadata,
           request,
-          user.id,
+          userId,
           'SUCCESS',
           response,
           Date.now() - startTime,
@@ -60,7 +66,7 @@ export class AuditLogInterceptor implements NestInterceptor {
         this.logAction(
           auditMetadata,
           request,
-          user.id,
+          userId,
           'ERROR',
           { error: error.message },
           Date.now() - startTime,

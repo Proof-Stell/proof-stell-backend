@@ -1,11 +1,15 @@
 // src/scheduled-challenges/services/daily-challenge.service.ts
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, MoreThan, LessThan, Between } from 'typeorm';
+import { Repository, LessThan, MoreThan } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { DailyChallenge } from '../entities/daily-challenge.entity';
 import { ChallengeParticipation } from '../entities/challenge-participation.entity';
 import { EventEmitter2 } from '@nestjs/event-emitter';
+import { DistributedLockService } from '../../cache/distributed-lock.service';
+import { TypedConfigService } from '../../common/config/typed-config.service';
+
+const LOCK_KEY_DAILY_RESET = 'lock:scheduler:daily-challenge:reset';
 
 interface ChallengeTemplate {
   objective: string;
@@ -32,6 +36,8 @@ export class DailyChallengeService {
     @InjectRepository(ChallengeParticipation)
     private readonly participationRepository: Repository<ChallengeParticipation>,
     private readonly eventEmitter: EventEmitter2,
+    private readonly lockService: DistributedLockService,
+    private readonly configService: TypedConfigService,
   ) {}
 
   private readonly challengeTemplates: ChallengeTemplate[] = [
@@ -65,8 +71,21 @@ export class DailyChallengeService {
   @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT, {
     timeZone: 'UTC',
   })
-  async handleDailyChallengeReset() {
-    this.logger.log('Starting daily challenge reset...');
+  async handleDailyChallengeReset(): Promise<void> {
+    // Cluster-safe: only one instance runs the reset per cycle. The lock
+    // TTL (default 5 min) is well above the worst-case wall-time of the
+    // reset routine (archive + create + emit).
+    const ttl = this.configService.cronLockTtlMs;
+    const lock = await this.lockService.acquire(LOCK_KEY_DAILY_RESET, ttl);
+    if (!lock) {
+      this.logger.debug(
+        'Skipping daily challenge reset: another instance holds the lock.',
+      );
+      return;
+    }
+    this.logger.log(
+      `Instance ${this.configService.schedulerInstanceId} starting daily challenge reset...`,
+    );
 
     try {
       // Archive current active challenge
@@ -85,8 +104,13 @@ export class DailyChallengeService {
         objective: newChallenge.objective,
       });
     } catch (error) {
-      this.logger.error('Failed to reset daily challenge:', error);
+      this.logger.error(
+        'Failed to reset daily challenge:',
+        error instanceof Error ? error.stack : String(error),
+      );
       throw error;
+    } finally {
+      await this.lockService.release(lock);
     }
   }
 
@@ -212,6 +236,8 @@ export class DailyChallengeService {
   }
 
   async manuallyTriggerReset(): Promise<DailyChallenge> {
+    // Manual triggers bypass the scheduler lock so operators can recover
+    // from a botched cron run without waiting for the TTL to expire.
     this.logger.log('Manually triggering daily challenge reset...');
 
     await this.archiveCurrentChallenge();

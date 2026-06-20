@@ -27,6 +27,8 @@ export const validationSchema = Joi.object({
   AUTH_MAX_FAILED_ATTEMPTS: Joi.number().integer().positive().default(5),
   AUTH_LOCKOUT_DURATION_SECONDS: Joi.number().integer().positive().default(900),
   AUTH_ATTEMPT_WINDOW_SECONDS: Joi.number().integer().positive().default(900),
+  CRON_LOCK_TTL_MS: Joi.number().integer().positive().default(300000),
+  SCHEDULER_INSTANCE_ID: Joi.string().optional(),
   STARKNET_PRIVATE_KEY: Joi.string().required(),
   STARKNET_ACCOUNT_ADDRESS: Joi.string().required(),
   MINT_CONTRACT_ADDRESS: Joi.string().required(),

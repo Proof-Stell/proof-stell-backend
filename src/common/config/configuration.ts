@@ -1,4 +1,10 @@
 import { registerAs } from '@nestjs/config';
+import * as os from 'os';
+
+// Deterministic per-process scheduler identifier used as a fallback
+// when SCHEDULER_INSTANCE_ID is not provided. Computed once at module
+// load so every log line within a single process stays correlated.
+const SCHEDULER_INSTANCE_ID_FALLBACK = `${os.hostname?.() || 'host'}-${process.pid}`;
 
 export default registerAs('app', () => ({
   port: parseInt(process.env.PORT, 10) || 3000,
@@ -31,6 +37,9 @@ export default registerAs('app', () => ({
     process.env.AUTH_ATTEMPT_WINDOW_SECONDS || '900',
     10,
   ),
+  cronLockTtlMs: parseInt(process.env.CRON_LOCK_TTL_MS || '300000', 10),
+  schedulerInstanceId:
+    process.env.SCHEDULER_INSTANCE_ID || SCHEDULER_INSTANCE_ID_FALLBACK,
   starknetPrivateKey: process.env.STARKNET_PRIVATE_KEY,
   starknetAccountAddress: process.env.STARKNET_ACCOUNT_ADDRESS,
   mintContractAddress: process.env.MINT_CONTRACT_ADDRESS,

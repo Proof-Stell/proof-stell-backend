@@ -22,6 +22,8 @@ export interface AppConfig {
   authMaxFailedAttempts: number;
   authLockoutDurationSeconds: number;
   authAttemptWindowSeconds: number;
+  cronLockTtlMs: number;
+  schedulerInstanceId: string;
   starknetPrivateKey: string;
   starknetAccountAddress: string;
   mintContractAddress: string;
@@ -74,6 +76,16 @@ export class TypedConfigService {
       authAttemptWindowSeconds: this.configService.get<number>(
         'app.authAttemptWindowSeconds',
         900,
+      ),
+      cronLockTtlMs: this.configService.get<number>(
+        'app.cronLockTtlMs',
+        300000,
+      ),
+      schedulerInstanceId: this.configService.get<string>(
+        'app.schedulerInstanceId',
+        // Fallback is overridden on construction if `os`/`process` are
+        // available; this default only kicks in during unit tests.
+        'instance-0',
       ),
       starknetPrivateKey: this.configService.get<string>(
         'app.starknetPrivateKey',
@@ -148,6 +160,12 @@ export class TypedConfigService {
   }
   get authAttemptWindowSeconds() {
     return this.app.authAttemptWindowSeconds;
+  }
+  get cronLockTtlMs() {
+    return this.app.cronLockTtlMs;
+  }
+  get schedulerInstanceId() {
+    return this.app.schedulerInstanceId;
   }
   get starknetPrivateKey() {
     return this.app.starknetPrivateKey;

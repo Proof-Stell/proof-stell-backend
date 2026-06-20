@@ -5,6 +5,7 @@ import * as redisStore from 'cache-manager-ioredis';
 import { CacheService } from './cache.service';
 import { CacheInterceptor } from './interceptors/cache.interceptor';
 import { CacheController } from './cache.controller';
+import { DistributedLockService } from './distributed-lock.service';
 
 @Global()
 @Module({
@@ -33,7 +34,12 @@ import { CacheController } from './cache.controller';
     }),
   ],
   controllers: [CacheController],
-  providers: [CacheService, CacheInterceptor],
-  exports: [CacheService, CacheInterceptor, NestCacheModule],
+  providers: [CacheService, CacheInterceptor, DistributedLockService],
+  exports: [
+    CacheService,
+    CacheInterceptor,
+    DistributedLockService,
+    NestCacheModule,
+  ],
 })
 export class CacheModule {}

@@ -94,6 +94,9 @@ export class TypedConfigService {
       starknetAccountAddress: this.configService.get<string>(
         'app.starknetAccountAddress',
       ),
+      starknetRpcUrl: this.configService.get<string>(
+        'app.starknetRpcUrl',
+      ),
       mintContractAddress: this.configService.get<string>(
         'app.mintContractAddress',
       ),
@@ -173,6 +176,9 @@ export class TypedConfigService {
   }
   get starknetAccountAddress() {
     return this.app.starknetAccountAddress;
+  }
+  get starknetRpcUrl() {
+    return this.app.starknetRpcUrl;
   }
   get mintContractAddress() {
     return this.app.mintContractAddress;

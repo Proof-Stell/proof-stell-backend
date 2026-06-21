@@ -73,7 +73,12 @@ export class GameSessionController {
     @Query('limit') limit: number = 50,
     @Query('offset') offset: number = 0,
   ) {
-    return this.gameSessionService.findSessionsByUser(userId, req.user, limit, offset);
+    return this.gameSessionService.findSessionsByUser(
+      userId,
+      req.user,
+      limit,
+      offset,
+    );
   }
 
   @Get(':sessionId')

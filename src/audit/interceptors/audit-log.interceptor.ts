@@ -1,16 +1,24 @@
 import {
   Injectable,
+  Logger,
   type NestInterceptor,
   type ExecutionContext,
   type CallHandler,
 } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
 import type { Observable } from 'rxjs';
-import { tap, catchError } from 'rxjs/operators';
-import type { Reflector } from '@nestjs/core';
-import type { AuditLogService } from '../services/audit-log.service';
+import { EMPTY, from, throwError, timer } from 'rxjs';
+import { catchError, switchMap, tap, timeout } from 'rxjs/operators';
 import type { Request } from 'express';
+import { AuditLogService } from '../services/audit-log.service';
+import { extractClientIp } from '../../common/utils/extract-client-ip';
 
 export const AUDIT_LOG_KEY = 'auditLog';
+
+/** Hard cap on how long we'll wait for the audit DB to accept a write
+ *  before rethrowing the original error. Bounded so a slow / down
+ *  audit DB cannot stall every failing response. */
+const AUDIT_WRITE_TIMEOUT_MS = 500;
 
 export interface AuditLogMetadata {
   actionType: string;
@@ -21,15 +29,17 @@ export interface AuditLogMetadata {
 
 @Injectable()
 export class AuditLogInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(AuditLogInterceptor.name);
+
   constructor(
     private readonly auditLogService: AuditLogService,
     private readonly reflector: Reflector,
   ) {}
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<any> {
-    const auditMetadata = this.reflector.get<AuditLogMetadata>(
+    const auditMetadata = this.reflector.getAllAndOverride<AuditLogMetadata>(
       AUDIT_LOG_KEY,
-      context.getHandler(),
+      [context.getHandler(), context.getClass()],
     );
 
     if (!auditMetadata) {
@@ -37,35 +47,65 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
 
     const request = context.switchToHttp().getRequest<Request>();
-    const user = request.user as any; // Assuming user is attached to request
+    const user = request.user as { id?: string } | undefined;
 
     if (!user?.id) {
+      // Without identity we have nothing to attribute the action to.
+      // AdminGuard already covers the audit-on-denial case for admin
+      // routes; for non-admin routes this is fine — the next guard
+      // (or the handler) catches any access concerns itself.
       return next.handle();
     }
 
     const startTime = Date.now();
+    const userId = user.id;
 
     return next.handle().pipe(
       tap((response) => {
-        this.logAction(
+        // Fire-and-forget on success: never block the response on the
+        // audit DB. Internal try/catch inside `logAction` swallows any
+        // failure so this Promise is always safe to discard.
+        void this.logAction(
           auditMetadata,
           request,
-          user.id,
+          userId,
           'SUCCESS',
           response,
           Date.now() - startTime,
         );
       }),
-      catchError((error) => {
-        this.logAction(
-          auditMetadata,
-          request,
-          user.id,
-          'ERROR',
-          { error: error.message },
-          Date.now() - startTime,
+      catchError((error: unknown) => {
+        const err = error instanceof Error ? error : new Error(String(error));
+        // Await the audit write with a hard timeout, then rethrow the
+        // ORIGINAL error so NestJS's exception filter emits the right
+        // status. If the audit write hangs/times out/fails, we still
+        // rethrow — we never swallow the user-facing error.
+        return from(
+          this.logAction(
+            auditMetadata,
+            request,
+            userId,
+            'ERROR',
+            undefined,
+            Date.now() - startTime,
+            err.message,
+          ),
+        ).pipe(
+          timeout({
+            first: AUDIT_WRITE_TIMEOUT_MS,
+            meta: 'AuditLogInterceptor.error-write',
+          }),
+          catchError((auditErr: unknown) => {
+            const aErr =
+              auditErr instanceof Error ? auditErr : new Error(String(auditErr));
+            this.logger.error(
+              `Audit log write for ERROR result did not complete in ${AUDIT_WRITE_TIMEOUT_MS}ms (action=${auditMetadata.actionType}): ${aErr.message}`,
+            );
+            // Continue with the original error regardless.
+            return EMPTY;
+          }),
+          switchMap(() => throwError(() => err)),
         );
-        throw error;
       }),
     );
   }
@@ -75,13 +115,14 @@ export class AuditLogInterceptor implements NestInterceptor {
     request: Request,
     userId: string,
     result: 'SUCCESS' | 'ERROR',
-    responseData: any,
+    responseData: unknown,
     duration: number,
-  ) {
+    errorMessage?: string,
+  ): Promise<void> {
     try {
-      const logMetadata: Record<string, any> = {
+      const logMetadata: Record<string, unknown> = {
         method: request.method,
-        url: request.url,
+        url: request.originalUrl ?? request.url,
         duration,
         result,
       };
@@ -91,44 +132,56 @@ export class AuditLogInterceptor implements NestInterceptor {
       }
 
       if (metadata.includeBody && request.body) {
-        // Sanitize sensitive data
         const sanitizedBody = this.sanitizeData(request.body);
         logMetadata.requestBody = sanitizedBody;
       }
 
       if (result === 'SUCCESS' && responseData) {
-        logMetadata.responseSize = JSON.stringify(responseData).length;
+        try {
+          logMetadata.responseSize = JSON.stringify(responseData).length;
+        } catch {
+          logMetadata.responseSize = -1;
+        }
       }
 
       await this.auditLogService.logAction({
         actionType: metadata.actionType,
         userId,
         metadata: logMetadata,
-        ipAddress: this.getClientIp(request),
-        userAgent: request.headers['user-agent'],
+        ipAddress: extractClientIp(request),
+        userAgent: request.headers['user-agent'] as string | undefined,
         resource: metadata.resource,
         result,
+        errorMessage,
       });
     } catch (error) {
-      // Log error but don't throw to avoid breaking the main request
-      console.error('Failed to create audit log:', error);
+      const err = error instanceof Error ? error : new Error(String(error));
+      // Never let an audit failure break the main request.
+      this.logger.error(
+        `Failed to create audit log (action=${metadata.actionType}): ${err.message}`,
+        err.stack,
+      );
     }
   }
 
-  private sanitizeData(data: any): any {
+  private sanitizeData(data: unknown): unknown {
     const sensitiveFields = [
       'password',
       'token',
       'secret',
       'key',
       'authorization',
+      'refreshToken',
+      'accessToken',
     ];
 
     if (typeof data !== 'object' || data === null) {
       return data;
     }
 
-    const sanitized = { ...data };
+    const sanitized: Record<string, unknown> = {
+      ...(data as Record<string, unknown>),
+    };
 
     for (const field of sensitiveFields) {
       if (field in sanitized) {
@@ -137,13 +190,5 @@ export class AuditLogInterceptor implements NestInterceptor {
     }
 
     return sanitized;
-  }
-
-  private getClientIp(request: Request): string {
-    return ((request.headers['x-forwarded-for'] as string)?.split(',')[0] ||
-      request.headers['x-real-ip'] ||
-      request.connection?.remoteAddress ||
-      request.socket?.remoteAddress ||
-      'unknown') as string;
   }
 }

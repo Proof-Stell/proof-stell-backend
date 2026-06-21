@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SettingsService } from '../../settings/settings.service';
-import { UserRole } from '../../auth/constants';
+import { Role } from '../enums/role.enum';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
@@ -37,7 +37,7 @@ export class MaintenanceGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
-    if (user && user.roles && user.roles.includes(UserRole.Admin)) {
+    if (user && user.role === Role.ADMIN) {
       return true;
     }
 

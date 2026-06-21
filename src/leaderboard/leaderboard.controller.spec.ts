@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { Test, TestingModule } from '@nestjs/testing';
 import { LeaderboardController } from './leaderboard.controller';
 import { LeaderboardService } from './Leaderboard.service';

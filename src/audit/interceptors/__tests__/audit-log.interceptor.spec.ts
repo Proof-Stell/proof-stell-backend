@@ -5,42 +5,39 @@ import { of, throwError } from 'rxjs';
 import {
   AuditLogInterceptor,
   type AuditLogMetadata,
+  AUDIT_LOG_KEY,
 } from '../audit-log.interceptor';
-import { AuditLogService } from '../../services/audit-log.service';
+import { AuditLogService, type LogActionParams } from '../../services/audit-log.service';
 import { jest } from '@jest/globals';
 
 describe('AuditLogInterceptor', () => {
   let interceptor: AuditLogInterceptor;
-  let auditLogService: jest.Mocked<AuditLogService>;
-  let reflector: jest.Mocked<Reflector>;
+  let auditLogService: jest.Mocked<Pick<AuditLogService, 'logAction'>>;
+  let reflector: { getAllAndOverride: jest.Mock; get: jest.Mock };
 
-  const mockExecutionContext = {
-    switchToHttp: jest.fn().mockReturnValue({
-      getRequest: jest.fn(),
-    }),
-    getHandler: jest.fn(),
-  } as unknown as ExecutionContext;
+  const handler = function namedHandler() {};
+  const cls = class SomeClass {};
 
-  const mockCallHandler = {
-    handle: jest.fn(),
-  } as unknown as CallHandler;
-
-  const mockRequest = {
-    method: 'POST',
-    url: '/api/users',
-    params: { id: '123' },
-    body: { name: 'John', password: 'secret' },
-    headers: { 'user-agent': 'Mozilla/5.0' },
-    connection: { remoteAddress: '127.0.0.1' },
-    user: { id: 'user-123' },
-  };
+  const makeContext = (request: unknown) =>
+    ({
+      switchToHttp: () => ({
+        getRequest: () => request,
+        getResponse: () => ({}),
+        getNext: () => jest.fn(),
+      }),
+      getHandler: () => handler,
+      getClass: () => cls,
+    }) as unknown as ExecutionContext;
 
   beforeEach(async () => {
-    const mockAuditLogService = {
+    const mockAuditLogService: jest.Mocked<
+      Pick<AuditLogService, 'logAction'>
+    > = {
       logAction: jest.fn(),
     };
 
     const mockReflector = {
+      getAllAndOverride: jest.fn(),
       get: jest.fn(),
     };
 
@@ -53,215 +50,261 @@ describe('AuditLogInterceptor', () => {
     }).compile();
 
     interceptor = module.get<AuditLogInterceptor>(AuditLogInterceptor);
-    auditLogService = module.get(AuditLogService);
-    reflector = module.get(Reflector);
+    auditLogService = module.get(AuditLogService) as jest.Mocked<
+      Pick<AuditLogService, 'logAction'>
+    >;
+    reflector = module.get(Reflector) as unknown as {
+      getAllAndOverride: jest.Mock;
+      get: jest.Mock;
+    };
   });
 
-  it('should be defined', () => {
+  it('is defined', () => {
     expect(interceptor).toBeDefined();
   });
 
-  it('should pass through when no audit metadata is found', (done) => {
-    reflector.get.mockReturnValue(undefined);
-    (mockCallHandler.handle as jest.Mock).mockReturnValue(of('response'));
+  it('passes through when no audit metadata is found at handler or class', async () => {
+    reflector.getAllAndOverride.mockReturnValue(undefined);
+    const handlerStub = {
+      handle: jest.fn().mockReturnValue(of('response')),
+    } as unknown as CallHandler;
 
-    interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
-      next: (value) => {
-        expect(value).toBe('response');
-        expect(auditLogService.logAction).not.toHaveBeenCalled();
-        done();
-      },
+    await new Promise<void>((resolve, reject) => {
+      interceptor
+        .intercept(makeContext({}), handlerStub)
+        .subscribe({ next: resolve, error: reject });
     });
+
+    expect(reflector.getAllAndOverride).toHaveBeenCalledWith(AUDIT_LOG_KEY, [
+      handler,
+      cls,
+    ]);
+    expect(auditLogService.logAction).not.toHaveBeenCalled();
   });
 
-  it('should pass through when no user is found in request', (done) => {
-    const metadata: AuditLogMetadata = {
-      actionType: 'USER_CREATED',
-      resource: 'users',
+  it('passes through when no authenticated user is on the request', async () => {
+    const metadata: AuditLogMetadata = { actionType: 'ADMIN_VIEW' };
+    reflector.getAllAndOverride.mockReturnValue(metadata);
+
+    const handlerStub = {
+      handle: jest.fn().mockReturnValue(of('response')),
+    } as unknown as CallHandler;
+    const request = {
+      method: 'GET',
+      url: '/x',
+      originalUrl: '/api/v1/x',
+      headers: {},
+      user: undefined,
     };
 
-    reflector.get.mockReturnValue(metadata);
-    (
-      mockExecutionContext.switchToHttp().getRequest as jest.Mock
-    ).mockReturnValue({
-      ...mockRequest,
-      user: undefined,
+    await new Promise<void>((resolve, reject) => {
+      interceptor
+        .intercept(makeContext(request), handlerStub)
+        .subscribe({ next: resolve, error: reject });
     });
-    (mockCallHandler.handle as jest.Mock).mockReturnValue(of('response'));
 
-    interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
-      next: (value) => {
-        expect(value).toBe('response');
-        expect(auditLogService.logAction).not.toHaveBeenCalled();
-        done();
-      },
-    });
+    expect(auditLogService.logAction).not.toHaveBeenCalled();
   });
 
-  it('should log successful action', (done) => {
+  it('reads metadata from the class when the handler has no decorator', async () => {
     const metadata: AuditLogMetadata = {
-      actionType: 'USER_CREATED',
-      resource: 'users',
+      actionType: 'CLASS_LEVEL',
+      resource: 'admin:class',
+    };
+    reflector.getAllAndOverride.mockReturnValue(metadata);
+
+    const handlerStub = {
+      handle: jest.fn().mockReturnValue(of({ ok: true })),
+    } as unknown as CallHandler;
+    const request = {
+      method: 'GET',
+      url: '/x',
+      originalUrl: '/api/v1/x',
+      headers: { 'user-agent': 'jest' },
+      user: { id: 'user-123' },
+    };
+
+    await new Promise<void>((resolve, reject) => {
+      interceptor
+        .intercept(makeContext(request), handlerStub)
+        .subscribe({ next: resolve, error: reject });
+    });
+
+    expect(reflector.getAllAndOverride).toHaveBeenCalledWith(AUDIT_LOG_KEY, [
+      handler,
+      cls,
+    ]);
+
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(auditLogService.logAction).toHaveBeenCalledTimes(1);
+    expect(auditLogService.logAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: 'CLASS_LEVEL',
+        resource: 'admin:class',
+      }),
+    );
+  });
+
+  it('logs a SUCCESS entry with sanitized body, params, duration, and response size', async () => {
+    const metadata: AuditLogMetadata = {
+      actionType: 'ADMIN_DASHBOARD_VIEW',
+      resource: 'admin:dashboard',
       includeBody: true,
       includeParams: true,
     };
+    reflector.getAllAndOverride.mockReturnValue(metadata);
 
-    reflector.get.mockReturnValue(metadata);
-    (
-      mockExecutionContext.switchToHttp().getRequest as jest.Mock
-    ).mockReturnValue(mockRequest);
-    (mockCallHandler.handle as jest.Mock).mockReturnValue(
-      of('success response'),
-    );
+    const handlerStub = {
+      handle: jest.fn().mockReturnValue(of({ ok: true })),
+    } as unknown as CallHandler;
 
-    auditLogService.logAction.mockResolvedValue({} as any);
-
-    interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
-      next: (value) => {
-        expect(value).toBe('success response');
-
-        // Give a small delay for async logging
-        setTimeout(() => {
-          expect(auditLogService.logAction).toHaveBeenCalledWith({
-            actionType: 'USER_CREATED',
-            userId: 'user-123',
-            metadata: expect.objectContaining({
-              method: 'POST',
-              url: '/api/users',
-              result: 'SUCCESS',
-              params: { id: '123' },
-              requestBody: { name: 'John', password: '[REDACTED]' },
-              responseSize: expect.any(Number),
-              duration: expect.any(Number),
-            }),
-            ipAddress: '127.0.0.1',
-            userAgent: 'Mozilla/5.0',
-            resource: 'users',
-            result: 'SUCCESS',
-          });
-          done();
-        }, 10);
-      },
-    });
-  });
-
-  it('should log failed action', (done) => {
-    const metadata: AuditLogMetadata = {
-      actionType: 'USER_CREATED',
-      resource: 'users',
+    const request = {
+      method: 'POST',
+      url: '/api/users',
+      originalUrl: '/api/v1/api/users',
+      params: { id: '123' },
+      body: { name: 'John', password: 'secret' },
+      headers: { 'user-agent': 'Mozilla/5.0', 'x-forwarded-for': '10.0.0.1' },
+      user: { id: 'user-123' },
     };
 
-    const error = new Error('Validation failed');
-
-    reflector.get.mockReturnValue(metadata);
-    (
-      mockExecutionContext.switchToHttp().getRequest as jest.Mock
-    ).mockReturnValue(mockRequest);
-    (mockCallHandler.handle as jest.Mock).mockReturnValue(
-      throwError(() => error),
-    );
-
-    auditLogService.logAction.mockResolvedValue({} as any);
-
-    interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
-      error: (err) => {
-        expect(err).toBe(error);
-
-        // Give a small delay for async logging
-        setTimeout(() => {
-          expect(auditLogService.logAction).toHaveBeenCalledWith({
-            actionType: 'USER_CREATED',
-            userId: 'user-123',
-            metadata: expect.objectContaining({
-              method: 'POST',
-              url: '/api/users',
-              result: 'ERROR',
-              error: 'Validation failed',
-              duration: expect.any(Number),
-            }),
-            ipAddress: '127.0.0.1',
-            userAgent: 'Mozilla/5.0',
-            resource: 'users',
-            result: 'ERROR',
-          });
-          done();
-        }, 10);
-      },
+    await new Promise<void>((resolve, reject) => {
+      interceptor
+        .intercept(makeContext(request), handlerStub)
+        .subscribe({ next: resolve, error: reject });
     });
+
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(auditLogService.logAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: 'ADMIN_DASHBOARD_VIEW',
+        userId: 'user-123',
+        ipAddress: '10.0.0.1',
+        userAgent: 'Mozilla/5.0',
+        resource: 'admin:dashboard',
+        result: 'SUCCESS',
+        metadata: expect.objectContaining({
+          method: 'POST',
+          url: '/api/v1/api/users',
+          result: 'SUCCESS',
+          duration: expect.any(Number),
+          params: { id: '123' },
+          requestBody: { name: 'John', password: '[REDACTED]' },
+          responseSize: expect.any(Number),
+        }),
+      }),
+    );
   });
 
-  it('should sanitize sensitive data in request body', (done) => {
+  it('awaits an ERROR log before rethrowing the original error (assertion survives)', async () => {
     const metadata: AuditLogMetadata = {
-      actionType: 'USER_CREATED',
+      actionType: 'ADMIN_EXPORT_CSV',
+      resource: 'admin:export',
+    };
+    reflector.getAllAndOverride.mockReturnValue(metadata);
+
+    auditLogService.logAction.mockResolvedValue(undefined as any);
+
+    const boom = new Error('Validation failed');
+    const handlerStub = {
+      handle: jest.fn().mockReturnValue(throwError(() => boom)),
+    } as unknown as CallHandler;
+
+    const request = {
+      method: 'POST',
+      url: '/admin/export/csv',
+      originalUrl: '/api/v1/admin/export/csv',
+      headers: { 'user-agent': 'jest' },
+      user: { id: 'user-123' },
+    };
+
+    let received: unknown = null;
+    try {
+      await new Promise<void>((resolve, reject) => {
+        interceptor
+          .intercept(makeContext(request), handlerStub)
+          .subscribe({ next: resolve, error: reject });
+      });
+    } catch (err) {
+      received = err;
+    }
+
+    await new Promise<void>((r) => setImmediate(r));
+
+    expect(received).toBe(boom);
+
+    expect(auditLogService.logAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionType: 'ADMIN_EXPORT_CSV',
+        userId: 'user-123',
+        result: 'ERROR',
+        errorMessage: 'Validation failed',
+        metadata: expect.objectContaining({
+          method: 'POST',
+          url: '/api/v1/admin/export/csv',
+          result: 'ERROR',
+          duration: expect.any(Number),
+        }),
+      }),
+    );
+  });
+
+  it('sanitizes a broader set of sensitive fields', async () => {
+    const metadata: AuditLogMetadata = {
+      actionType: 'USER_UPDATED',
       includeBody: true,
     };
+    reflector.getAllAndOverride.mockReturnValue(metadata);
 
-    const requestWithSensitiveData = {
-      ...mockRequest,
+    const handlerStub = {
+      handle: jest.fn().mockReturnValue(of({})),
+    } as unknown as CallHandler;
+
+    const request = {
+      method: 'PUT',
+      url: '/users/me',
+      originalUrl: '/api/v1/users/me',
       body: {
-        name: 'John',
-        password: 'secret123',
-        token: 'jwt-token',
-        secret: 'api-secret',
-        key: 'encryption-key',
-        authorization: 'Bearer token',
-        normalField: 'normal-value',
+        name: 'Jane',
+        password: 'p',
+        token: 't',
+        secret: 's',
+        key: 'k',
+        authorization: 'Bearer x',
+        refreshToken: 'rt',
+        accessToken: 'at',
+        notes: 'public',
       },
+      headers: { 'user-agent': 'jest' },
+      user: { id: 'user-123' },
     };
 
-    reflector.get.mockReturnValue(metadata);
-    (
-      mockExecutionContext.switchToHttp().getRequest as jest.Mock
-    ).mockReturnValue(requestWithSensitiveData);
-    (mockCallHandler.handle as jest.Mock).mockReturnValue(of('response'));
-
-    auditLogService.logAction.mockResolvedValue({} as any);
-
-    interceptor.intercept(mockExecutionContext, mockCallHandler).subscribe({
-      next: () => {
-        setTimeout(() => {
-          expect(auditLogService.logAction).toHaveBeenCalledWith(
-            expect.objectContaining({
-              metadata: expect.objectContaining({
-                requestBody: {
-                  name: 'John',
-                  password: '[REDACTED]',
-                  token: '[REDACTED]',
-                  secret: '[REDACTED]',
-                  key: '[REDACTED]',
-                  authorization: '[REDACTED]',
-                  normalField: 'normal-value',
-                },
-              }),
-            }),
-          );
-          done();
-        }, 10);
-      },
+    await new Promise<void>((resolve, reject) => {
+      interceptor
+        .intercept(makeContext(request), handlerStub)
+        .subscribe({ next: resolve, error: reject });
     });
-  });
 
-  it('should extract IP address from various headers', () => {
-    const testCases = [
-      {
-        headers: { 'x-forwarded-for': '192.168.1.1, 10.0.0.1' },
-        expected: '192.168.1.1',
-      },
-      {
-        headers: { 'x-real-ip': '192.168.1.2' },
-        expected: '192.168.1.2',
-      },
-      {
-        headers: {},
-        connection: { remoteAddress: '192.168.1.3' },
-        expected: '192.168.1.3',
-      },
-    ];
+    await new Promise<void>((r) => setImmediate(r));
 
-    testCases.forEach(({ headers, connection, expected }) => {
-      const request = { headers, connection };
-      const ip = (interceptor as any).getClientIp(request);
-      expect(ip).toBe(expected);
-    });
+    expect(auditLogService.logAction).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          requestBody: {
+            name: 'Jane',
+            password: '[REDACTED]',
+            token: '[REDACTED]',
+            secret: '[REDACTED]',
+            key: '[REDACTED]',
+            authorization: '[REDACTED]',
+            refreshToken: '[REDACTED]',
+            accessToken: '[REDACTED]',
+            notes: 'public',
+          },
+        }),
+      }),
+    );
   });
 });

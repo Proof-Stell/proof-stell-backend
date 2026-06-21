@@ -13,7 +13,6 @@ import { ChallengesController } from './challenges.controller';
 import { DailyChallengeService } from './services/daily-challenge.service';
 import { DailyChallenge } from './entities/daily-challenge.entity';
 import { ChallengeParticipation } from './entities/challenge-participation.entity';
-import { AdminChallengeController } from 'src/admin/controllers/challenge-participation.controller';
 
 @Module({
   imports: [
@@ -27,7 +26,7 @@ import { AdminChallengeController } from 'src/admin/controllers/challenge-partic
     ]),
     ScheduleModule.forRoot(),
   ],
-  controllers: [ChallengesController, AdminChallengeController],
+  controllers: [ChallengesController],
   providers: [
     ChallengesService,
     DynamicDifficultyService,

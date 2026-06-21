@@ -32,7 +32,10 @@ export class GameSessionService {
     private dataSource: DataSource,
   ) {}
 
-  async startSession(userId: string, dto: StartSessionDto): Promise<{ sessionId: string; nonce: string }> {
+  async startSession(
+    userId: string,
+    dto: StartSessionDto,
+  ): Promise<{ sessionId: string; nonce: string }> {
     const nonce = crypto.randomBytes(32).toString('hex');
     const gameSession = this.gameSessionRepository.create({
       userId,
@@ -58,7 +61,9 @@ export class GameSessionService {
       });
 
       if (!gameSession) {
-        throw new NotFoundException('Session not found or does not belong to you');
+        throw new NotFoundException(
+          'Session not found or does not belong to you',
+        );
       }
 
       if (gameSession.nonceUsedAt) {
@@ -66,7 +71,10 @@ export class GameSessionService {
       }
 
       // Verify session HMAC integrity
-      const calculatedHash = this.calculateSessionHash(gameSession.nonce, reportSessionDto);
+      const calculatedHash = this.calculateSessionHash(
+        gameSession.nonce,
+        reportSessionDto,
+      );
       if (calculatedHash !== reportSessionDto.signature) {
         throw new BadRequestException('Session integrity check failed');
       }
@@ -196,7 +204,10 @@ export class GameSessionService {
     return analytics as SessionAnalytics;
   }
 
-  private calculateSessionHash(nonce: string, sessionData: ReportSessionDto): string {
+  private calculateSessionHash(
+    nonce: string,
+    sessionData: ReportSessionDto,
+  ): string {
     const dataToHash = {
       challengeId: sessionData.challengeId,
       score: sessionData.score,
@@ -207,7 +218,8 @@ export class GameSessionService {
         sessionData.inputs[sessionData.inputs.length - 1]?.timestamp || 0,
     };
 
-    const serverSecret = process.env.SESSION_HMAC_SECRET || 'default-dev-secret';
+    const serverSecret =
+      process.env.SESSION_HMAC_SECRET || 'default-dev-secret';
 
     return crypto
       .createHmac('sha256', serverSecret)

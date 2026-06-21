@@ -115,7 +115,9 @@ export class AuthController {
   })
   @Post('resend-verification')
   @HttpCode(HttpStatus.OK)
-  async resendVerification(@Body('email') email: string): Promise<MessageResponseDto> {
+  async resendVerification(
+    @Body('email') email: string,
+  ): Promise<MessageResponseDto> {
     // FIX: Removed manual try/catch block and @Res() hijacking.
     // NestJS internal exception layers automatically format HTTP status bubbles cleanly.
     await this.authService.resendVerificationEmail(email);
@@ -139,7 +141,9 @@ export class AuthController {
   })
   @Get('verify-email')
   @HttpCode(HttpStatus.OK)
-  async verifyEmail(@Query('token') token: string): Promise<MessageResponseDto> {
+  async verifyEmail(
+    @Query('token') token: string,
+  ): Promise<MessageResponseDto> {
     // FIX: Let exceptions bubble up naturally to preserve clean type safety properties
     await this.authService.verifyEmail(token);
     return { message: 'Email verified successfully' };

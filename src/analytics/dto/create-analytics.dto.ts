@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { IsEnum, IsNotEmpty, IsOptional } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { AnalyticsEvent } from '../analytics-event.enum';

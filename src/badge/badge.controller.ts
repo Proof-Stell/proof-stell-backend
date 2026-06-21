@@ -31,10 +31,7 @@ import {
   UserProfileBadgesDto,
 } from './dto/badge-response.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
-import { RolesGuard } from '../common/guards/roles.guard';
 import { AdminGuard } from '../common/guards/admin.guard';
-import { Roles } from '../common/decorators/roles.decorator';
-import { Role } from '../common/enums/role.enum';
 import { AchievementType } from './entities/badge.entity';
 
 @ApiTags('Badges')
@@ -58,8 +55,7 @@ export class BadgeController {
     description: 'Forbidden - Admin access required',
   })
   @Post()
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(Role.ADMIN)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async createBadge(@Body() createBadgeDto: CreateBadgeDto) {
     return await this.badgeService.createBadge(createBadgeDto);
   }
@@ -112,7 +108,7 @@ export class BadgeController {
   }
 
   @Put(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async updateBadge(
     @Param('id', ParseUUIDPipe) id: string,
     updateData: Partial<CreateBadgeDto>,
@@ -121,13 +117,13 @@ export class BadgeController {
   }
 
   @Delete(':id')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async deactivateBadge(@Param('id', ParseUUIDPipe) id: string) {
     return await this.badgeService.deactivateBadge(id);
   }
 
   @Post('award')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async awardBadge(awardBadgeDto: AwardBadgeDto, @Request() req) {
     return await this.badgeService.awardBadgeManually(
       awardBadgeDto,
@@ -157,7 +153,7 @@ export class BadgeController {
   }
 
   @Delete('user/:userId/badge/:badgeId')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async removeBadgeFromUser(
     @Param('userId', ParseUUIDPipe) userId: string,
     @Param('badgeId', ParseUUIDPipe) badgeId: string,
@@ -178,7 +174,7 @@ export class BadgeController {
   }
 
   @Post('initialize-defaults')
-  @UseGuards(AdminGuard)
+  @UseGuards(JwtAuthGuard, AdminGuard)
   async initializeDefaultBadges() {
     await this.achievementService.initializeDefaultBadges();
     return { message: 'Default badges initialized successfully' };

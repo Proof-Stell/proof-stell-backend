@@ -1,7 +1,7 @@
-import { 
-  Injectable, 
-  ConflictException, 
-  BadRequestException 
+import {
+  Injectable,
+  ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { UserService } from '../../users/providers/users.service';
@@ -32,7 +32,9 @@ export class AuthService {
     } as any); // Safely cast if fields are structurally managed via entity metadata overrides
 
     // 3. Compile the dynamic redirect URL using server configuration environments
-    const baseUrl = this.configService.get<string>('FRONTEND_BASE_URL') || 'http://localhost:3000';
+    const baseUrl =
+      this.configService.get<string>('FRONTEND_BASE_URL') ||
+      'http://localhost:3000';
     const verificationUrl = `${baseUrl}/auth/verify-email?token=${emailVerificationToken}`;
 
     // 4. Dispatch the onboarding email matching the MailService parameters
@@ -52,9 +54,11 @@ export class AuthService {
 
     // This lookup now successfully includes emailVerificationExpires thanks to our previous fix
     const user = await this.usersService.findByVerificationToken(token);
-    
+
     if (!user || !user.emailVerificationToken) {
-      throw new BadRequestException('Invalid or already used verification token.');
+      throw new BadRequestException(
+        'Invalid or already used verification token.',
+      );
     }
 
     if (user.isEmailVerified) {

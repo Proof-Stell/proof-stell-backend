@@ -52,6 +52,20 @@ export const AUDIT_ACTIONS = {
   SUSPICIOUS_ACTIVITY: 'SUSPICIOUS_ACTIVITY',
   SECURITY_BREACH_ATTEMPT: 'SECURITY_BREACH_ATTEMPT',
   ACCESS_DENIED: 'ACCESS_DENIED',
+
+  // Admin Surface
+  ADMIN_DASHBOARD_VIEW: 'ADMIN_DASHBOARD_VIEW',
+  ADMIN_ACTIVE_USERS_VIEW: 'ADMIN_ACTIVE_USERS_VIEW',
+  ADMIN_GAMES_SUMMARY_VIEW: 'ADMIN_GAMES_SUMMARY_VIEW',
+  ADMIN_SYSTEM_HEALTH_VIEW: 'ADMIN_SYSTEM_HEALTH_VIEW',
+  ADMIN_EXPORT_CSV: 'ADMIN_EXPORT_CSV',
+  ADMIN_BADGE_CREATED: 'ADMIN_BADGE_CREATED',
+  ADMIN_BADGE_UPDATED: 'ADMIN_BADGE_UPDATED',
+  ADMIN_BADGE_DEACTIVATED: 'ADMIN_BADGE_DEACTIVATED',
+  ADMIN_BADGE_AWARDED: 'ADMIN_BADGE_AWARDED',
+  ADMIN_BADGE_REMOVED: 'ADMIN_BADGE_REMOVED',
+  ADMIN_BADGE_DEFAULTS_INITIALIZED: 'ADMIN_BADGE_DEFAULTS_INITIALIZED',
+  ADMIN_DAILY_CHALLENGE_RESET: 'ADMIN_DAILY_CHALLENGE_RESET',
 } as const;
 
 // SIgnificant changes have been made to the `AUDIT_ACTIONS` constant, which now includes a comprehensive list of audit action types categorized under various sections such as Authentication, User Management, Role Management, Data Operations, Claims Management, Policy Management, Payment Operations, System Operations, and Security Events. Each action type is represented as a string constant.

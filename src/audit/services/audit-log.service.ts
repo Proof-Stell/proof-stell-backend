@@ -11,6 +11,7 @@ export interface LogActionParams {
   userAgent?: string;
   resource?: string;
   result?: 'SUCCESS' | 'FAILURE' | 'ERROR';
+  errorMessage?: string;
 }
 
 export interface AuditLogFilters {
@@ -42,6 +43,7 @@ export class AuditLogService {
         userAgent: params.userAgent,
         resource: params.resource,
         result: params.result || 'SUCCESS',
+        errorMessage: params.errorMessage,
       });
 
       const savedLog = await this.auditLogRepository.save(auditLog);
@@ -53,8 +55,8 @@ export class AuditLogService {
       return savedLog;
     } catch (error) {
       this.logger.error(
-        `Failed to create audit log: ${error.message}`,
-        error.stack,
+        `Failed to create audit log: ${(error as Error).message}`,
+        (error as Error).stack,
       );
       throw error;
     }
@@ -76,7 +78,7 @@ export class AuditLogService {
       limit = 50,
     } = filters;
 
-    const whereConditions: any = {};
+    const whereConditions: Record<string, unknown> = {};
 
     if (userId) {
       whereConditions.userId = userId;
@@ -151,10 +153,13 @@ export class AuditLogService {
       .groupBy('audit_log.actionType')
       .getRawMany();
 
-    const logsByAction = actionStats.reduce((acc, stat) => {
-      acc[stat.actionType] = Number.parseInt(stat.count);
-      return acc;
-    }, {});
+    const logsByAction = actionStats.reduce<Record<string, number>>(
+      (acc, stat) => {
+        acc[stat.actionType] = Number.parseInt(stat.count, 10);
+        return acc;
+      },
+      {},
+    );
 
     const oneDayAgo = new Date();
     oneDayAgo.setDate(oneDayAgo.getDate() - 1);

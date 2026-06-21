@@ -20,31 +20,39 @@ describe('GameSession (e2e)', () => {
     server = app.getHttpServer();
 
     // Register User 1
-    const res1 = await request(server).post('/api/v1/auth/register').send({
-      email: `user1-${Date.now()}@example.com`,
-      username: `user1-${Date.now()}`,
-      password: 'TestPass123!',
-    });
+    const res1 = await request(server)
+      .post('/api/v1/auth/register')
+      .send({
+        email: `user1-${Date.now()}@example.com`,
+        username: `user1-${Date.now()}`,
+        password: 'TestPass123!',
+      });
     userId1 = res1.body.user ? res1.body.user.id : res1.body.id;
 
-    const loginRes1 = await request(server).post('/api/v1/auth/login').send({
-      email: res1.body.user?.email || `user1-${Date.now()}@example.com`,
-      password: 'TestPass123!',
-    });
+    const loginRes1 = await request(server)
+      .post('/api/v1/auth/login')
+      .send({
+        email: res1.body.user?.email || `user1-${Date.now()}@example.com`,
+        password: 'TestPass123!',
+      });
     accessToken1 = loginRes1.body.accessToken || loginRes1.body.access_token;
 
     // Register User 2
-    const res2 = await request(server).post('/api/v1/auth/register').send({
-      email: `user2-${Date.now()}@example.com`,
-      username: `user2-${Date.now()}`,
-      password: 'TestPass123!',
-    });
+    const res2 = await request(server)
+      .post('/api/v1/auth/register')
+      .send({
+        email: `user2-${Date.now()}@example.com`,
+        username: `user2-${Date.now()}`,
+        password: 'TestPass123!',
+      });
     userId2 = res2.body.user ? res2.body.user.id : res2.body.id;
 
-    const loginRes2 = await request(server).post('/api/v1/auth/login').send({
-      email: res2.body.user?.email || `user2-${Date.now()}@example.com`,
-      password: 'TestPass123!',
-    });
+    const loginRes2 = await request(server)
+      .post('/api/v1/auth/login')
+      .send({
+        email: res2.body.user?.email || `user2-${Date.now()}@example.com`,
+        password: 'TestPass123!',
+      });
     accessToken2 = loginRes2.body.accessToken || loginRes2.body.access_token;
   });
 
@@ -59,7 +67,7 @@ describe('GameSession (e2e)', () => {
         .get(`/session/user/${userId1}`)
         .set('Authorization', `Bearer ${accessToken2}`)
         .expect(403);
-      
+
       expect(res.body.message).toMatch(/own sessions/i);
     });
 
@@ -78,7 +86,7 @@ describe('GameSession (e2e)', () => {
         .get('/session/analytics/summary')
         .set('Authorization', `Bearer ${accessToken1}`)
         .expect(200);
-      
+
       expect(res.body).toBeDefined();
     });
   });

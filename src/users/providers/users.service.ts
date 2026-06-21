@@ -23,7 +23,7 @@ export class UserService {
   ) {}
 
   /**
-   * Helper utility method to fetch a full, safe, complete view 
+   * Helper utility method to fetch a full, safe, complete view
    * of a user record explicitly matching all ReadUserDto surface properties.
    */
   private async findCompleteUserForDto(id: string): Promise<User | null> {
@@ -83,7 +83,9 @@ export class UserService {
     // re-query the full record to guarantee all database defaults, hooks, and timestamps are populated.
     const completeUser = await this.findCompleteUserForDto(savedUser.id);
     if (!completeUser) {
-      throw new NotFoundException(`User record assembly failed for ID ${savedUser.id}`);
+      throw new NotFoundException(
+        `User record assembly failed for ID ${savedUser.id}`,
+      );
     }
 
     return plainToInstance(ReadUserDto, completeUser, {
@@ -159,16 +161,16 @@ export class UserService {
   }
 
   async findByVerificationToken(token: string): Promise<User | null> {
-    // FIX: Added 'user.emailVerificationExpires' to the selection array. 
+    // FIX: Added 'user.emailVerificationExpires' to the selection array.
     // This allows AuthService.verifyEmail() to perform accurate token expiration validation checks.
     return this.userRepository
       .createQueryBuilder('user')
       .select([
-        'user.id', 
-        'user.email', 
+        'user.id',
+        'user.email',
         'user.isEmailVerified',
         'user.emailVerificationToken',
-        'user.emailVerificationExpires'
+        'user.emailVerificationExpires',
       ])
       .where('user.emailVerificationToken = :token', { token })
       .getOne();
@@ -221,7 +223,9 @@ export class UserService {
     // FIX: Explicitly fetch the fully aggregated profile after mutating modifications
     const completeUser = await this.findCompleteUserForDto(id);
     if (!completeUser) {
-      throw new NotFoundException(`User with ID ${id} disappeared during sync update processing`);
+      throw new NotFoundException(
+        `User with ID ${id} disappeared during sync update processing`,
+      );
     }
 
     return plainToInstance(ReadUserDto, completeUser, {

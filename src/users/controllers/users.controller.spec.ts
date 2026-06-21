@@ -32,28 +32,42 @@ describe('AuthController - Email Verification Flow Tests', () => {
   });
 
   it('should successfully pass verification on valid tokens', async () => {
-    mockAuthService.verifyEmail.mockResolvedValue({ message: 'Email address successfully verified.' });
-    
+    mockAuthService.verifyEmail.mockResolvedValue({
+      message: 'Email address successfully verified.',
+    });
+
     const res = await controller.verifyEmail('valid-token-string');
     expect(res.message).toContain('successfully verified');
     expect(authService.verifyEmail).toHaveBeenCalledWith('valid-token-string');
   });
 
   it('should reject requests with missing token signatures', async () => {
-    mockAuthService.verifyEmail.mockRejectedValue(new BadRequestException('Token must be provided.'));
-    
-    await expect(controller.verifyEmail('')).rejects.toThrow(BadRequestException);
+    mockAuthService.verifyEmail.mockRejectedValue(
+      new BadRequestException('Token must be provided.'),
+    );
+
+    await expect(controller.verifyEmail('')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('should reject requests when token has already expired', async () => {
-    mockAuthService.verifyEmail.mockRejectedValue(new BadRequestException('Verification token has expired.'));
-    
-    await expect(controller.verifyEmail('expired-token')).rejects.toThrow(BadRequestException);
+    mockAuthService.verifyEmail.mockRejectedValue(
+      new BadRequestException('Verification token has expired.'),
+    );
+
+    await expect(controller.verifyEmail('expired-token')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 
   it('should fail elegantly if token has already been spent or used', async () => {
-    mockAuthService.verifyEmail.mockRejectedValue(new BadRequestException('Invalid or already used verification token.'));
-    
-    await expect(controller.verifyEmail('spent-token')).rejects.toThrow(BadRequestException);
+    mockAuthService.verifyEmail.mockRejectedValue(
+      new BadRequestException('Invalid or already used verification token.'),
+    );
+
+    await expect(controller.verifyEmail('spent-token')).rejects.toThrow(
+      BadRequestException,
+    );
   });
 });

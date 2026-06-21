@@ -1,60 +1,72 @@
-import { Controller, Get, UseGuards, Query, Req, Logger } from '@nestjs/common';
-import { AdminGuard } from './guards/admin.guard';
-import { MetricsService } from './services/metrics.service';
+import {
+  Controller,
+  Get,
+  Query,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { AdminGuard } from '../common/guards/admin.guard';
 import { AdminService } from './admin.service';
-import { Request } from 'express';
+import { MetricsService } from './services/metrics.service';
+import { AuditLog } from '../audit/decorators/audit-log.decorator';
+import { AuditLogInterceptor } from '../audit/interceptors/audit-log.interceptor';
+import { AUDIT_ACTIONS } from '../audit/constants/audit-actions';
+import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 
 @Controller('admin')
-@UseGuards(AdminGuard)
+@UseGuards(JwtAuthGuard, AdminGuard)
+@UseInterceptors(AuditLogInterceptor)
 export class AdminController {
-  private readonly logger = new Logger(AdminController.name);
-
   constructor(
     private readonly metricsService: MetricsService,
     private readonly adminService: AdminService,
   ) {}
 
   @Get('dashboard')
-  async getDashboard(@Req() req: Request) {
-    this.logAdminActivity(req.user, 'DASHBOARD_ACCESS');
+  @AuditLog({
+    actionType: AUDIT_ACTIONS.ADMIN_DASHBOARD_VIEW,
+    resource: 'admin:dashboard',
+  })
+  async getDashboard() {
     return this.adminService.getDashboardData();
   }
 
   @Get('metrics/users/active')
-  async getActiveUsers(
-    @Query('hours') hours: string = '24',
-    @Req() req: Request,
-  ) {
-    this.logAdminActivity(req.user, 'ACTIVE_USERS_VIEW');
-    return this.metricsService.getActiveUsers(parseInt(hours));
+  @AuditLog({
+    actionType: AUDIT_ACTIONS.ADMIN_ACTIVE_USERS_VIEW,
+    resource: 'admin:metrics:users',
+  })
+  async getActiveUsers(@Query('hours') hours: string = '24') {
+    return this.metricsService.getActiveUsers(parseInt(hours, 10));
   }
 
   @Get('metrics/games/summary')
-  async getGamesSummary(
-    @Query('days') days: string = '7',
-    @Req() req: Request,
-  ) {
-    this.logAdminActivity(req.user, 'GAMES_SUMMARY_VIEW');
-    return this.metricsService.getGamesSummary(parseInt(days));
+  @AuditLog({
+    actionType: AUDIT_ACTIONS.ADMIN_GAMES_SUMMARY_VIEW,
+    resource: 'admin:metrics:games',
+  })
+  async getGamesSummary(@Query('days') days: string = '7') {
+    return this.metricsService.getGamesSummary(parseInt(days, 10));
   }
 
   @Get('metrics/system/health')
-  async getSystemHealth(@Req() req: Request) {
-    this.logAdminActivity(req.user, 'SYSTEM_HEALTH_VIEW');
+  @AuditLog({
+    actionType: AUDIT_ACTIONS.ADMIN_SYSTEM_HEALTH_VIEW,
+    resource: 'admin:metrics:system',
+  })
+  async getSystemHealth() {
     return this.metricsService.getSystemHealth();
   }
 
   @Get('export/csv')
+  @AuditLog({
+    actionType: AUDIT_ACTIONS.ADMIN_EXPORT_CSV,
+    resource: 'admin:export',
+  })
   async exportDataCsv(
     @Query('type') type: string,
     @Query('days') days: string = '30',
-    @Req() req: Request,
   ) {
-    this.logAdminActivity(req.user, `EXPORT_CSV_${type.toUpperCase()}`);
-    return this.adminService.exportToCsv(type, parseInt(days));
-  }
-
-  private logAdminActivity(user: any, action: string) {
-    this.logger.log(`Admin activity: ${user?.email} - ${action}`);
+    return this.adminService.exportToCsv(type, parseInt(days, 10));
   }
 }

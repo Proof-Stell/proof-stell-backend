@@ -77,7 +77,7 @@ export class AuthTokenService {
   }
 
   async revokeAccessToken(token: string): Promise<void> {
-    const decoded = this.jwtService.decode(token) as AccessTokenClaims | null;
+    const decoded = this.jwtService.decode(token);
     const ttl = this.getRemainingTtlSeconds(decoded);
 
     if (ttl <= 0) {

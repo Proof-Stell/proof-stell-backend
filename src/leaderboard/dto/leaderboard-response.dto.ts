@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { Expose, Type } from 'class-transformer';
 import { ReadUserDto } from '../../users/dto/read-user.dto';
 

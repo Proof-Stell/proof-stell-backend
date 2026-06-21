@@ -44,7 +44,10 @@ describe('GameSessionController', () => {
   it('should call startSession', async () => {
     const req = { user: { id: 'user-1', role: 'player' } } as any;
     const dto = { challengeId: 'challenge-1' };
-    mockGameSessionService.startSession.mockResolvedValue({ sessionId: 'session-1', nonce: 'abc' });
+    mockGameSessionService.startSession.mockResolvedValue({
+      sessionId: 'session-1',
+      nonce: 'abc',
+    });
 
     const result = await controller.startSession(req, dto);
 
@@ -54,10 +57,18 @@ describe('GameSessionController', () => {
 
   it('should call getUserSessions with caller identity', async () => {
     const req = { user: { id: 'user-1', role: 'player' } } as any;
-    mockGameSessionService.findSessionsByUser.mockResolvedValue({ sessions: [], total: 0 });
+    mockGameSessionService.findSessionsByUser.mockResolvedValue({
+      sessions: [],
+      total: 0,
+    });
 
     await controller.getUserSessions(req, 'user-2', 10, 0);
 
-    expect(service.findSessionsByUser).toHaveBeenCalledWith('user-2', req.user, 10, 0);
+    expect(service.findSessionsByUser).toHaveBeenCalledWith(
+      'user-2',
+      req.user,
+      10,
+      0,
+    );
   });
 });

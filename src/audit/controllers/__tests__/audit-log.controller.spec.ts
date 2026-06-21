@@ -1,12 +1,18 @@
 import { Test, type TestingModule } from '@nestjs/testing';
 import { AuditLogController } from '../audit-log.controller';
-import { AuditLogService } from '../audit-log.service';
-import type { GetAuditLogsDto } from '../../../common/dto/audit-log.dto';
+import { AuditLogService } from '../../services/audit-log.service';
+import type { GetAuditLogsDto } from '../../dto/audit-log.dto';
 import { jest } from '@jest/globals';
 
 describe('AuditLogController', () => {
   let controller: AuditLogController;
-  let service: jest.Mocked<AuditLogService>;
+  let service: {
+    findLogs: jest.Mock;
+    getLogStats: jest.Mock;
+    getLogById: jest.Mock;
+    getLogsByUser: jest.Mock;
+    getLogsByActionType: jest.Mock;
+  };
 
   const mockAuditLog = {
     id: '123e4567-e89b-12d3-a456-426614174000',
@@ -18,15 +24,17 @@ describe('AuditLogController', () => {
     userAgent: 'Mozilla/5.0',
     resource: 'auth',
     result: 'SUCCESS',
+    errorMessage: null,
   };
 
   beforeEach(async () => {
     const mockService = {
+      logAction: jest.fn(),
       findLogs: jest.fn(),
-      getLogStats: jest.fn(),
       getLogById: jest.fn(),
       getLogsByUser: jest.fn(),
       getLogsByActionType: jest.fn(),
+      getLogStats: jest.fn(),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -40,7 +48,10 @@ describe('AuditLogController', () => {
     }).compile();
 
     controller = module.get<AuditLogController>(AuditLogController);
-    service = module.get(AuditLogService);
+    // Pull the mock straight back through NestJS — it's the same object
+    // instance since `useValue` is a singleton-per-test.
+    const mockAuditLogService = (module.get(AuditLogService) as any) as typeof service;
+    service = mockAuditLogService;
   });
 
   it('should be defined', () => {
@@ -48,7 +59,7 @@ describe('AuditLogController', () => {
   });
 
   describe('getAuditLogs', () => {
-    it('should return paginated audit logs', async () => {
+    it('returns paginated audit logs', async () => {
       const query: GetAuditLogsDto = {
         page: 1,
         limit: 50,
@@ -63,7 +74,7 @@ describe('AuditLogController', () => {
         totalPages: 1,
       };
 
-      service.findLogs.mockResolvedValue(expectedResponse);
+      (service.findLogs as jest.Mock).mockResolvedValue(expectedResponse);
 
       const result = await controller.getAuditLogs(query);
 
@@ -78,13 +89,13 @@ describe('AuditLogController', () => {
       expect(result).toEqual(expectedResponse);
     });
 
-    it('should handle date filters', async () => {
+    it('handles date filters', async () => {
       const query: GetAuditLogsDto = {
         startDate: '2024-01-01T00:00:00Z',
         endDate: '2024-01-02T00:00:00Z',
       };
 
-      service.findLogs.mockResolvedValue({
+      (service.findLogs as jest.Mock).mockResolvedValue({
         logs: [],
         total: 0,
         page: 1,
@@ -103,7 +114,7 @@ describe('AuditLogController', () => {
   });
 
   describe('getAuditLogStats', () => {
-    it('should return audit log statistics', async () => {
+    it('returns audit log statistics', async () => {
       const expectedStats = {
         totalLogs: 100,
         logsByAction: {
@@ -114,7 +125,7 @@ describe('AuditLogController', () => {
         recentActivity: 10,
       };
 
-      service.getLogStats.mockResolvedValue(expectedStats);
+      (service.getLogStats as jest.Mock).mockResolvedValue(expectedStats);
 
       const result = await controller.getAuditLogStats();
 
@@ -124,8 +135,8 @@ describe('AuditLogController', () => {
   });
 
   describe('getAuditLogById', () => {
-    it('should return specific audit log', async () => {
-      service.getLogById.mockResolvedValue(mockAuditLog);
+    it('returns a specific audit log', async () => {
+      (service.getLogById as jest.Mock).mockResolvedValue(mockAuditLog);
 
       const result = await controller.getAuditLogById('123');
 
@@ -133,8 +144,8 @@ describe('AuditLogController', () => {
       expect(result).toEqual(mockAuditLog);
     });
 
-    it('should throw error when log not found', async () => {
-      service.getLogById.mockResolvedValue(null);
+    it('throws when the log is not found', async () => {
+      (service.getLogById as jest.Mock).mockResolvedValue(null);
 
       await expect(controller.getAuditLogById('nonexistent')).rejects.toThrow(
         'Audit log not found',
@@ -143,18 +154,17 @@ describe('AuditLogController', () => {
   });
 
   describe('getUserAuditLogs', () => {
-    it('should return logs for specific user', async () => {
-      const logs = [mockAuditLog];
-      service.getLogsByUser.mockResolvedValue(logs);
+    it('returns logs for a specific user', async () => {
+      (service.getLogsByUser as jest.Mock).mockResolvedValue([mockAuditLog]);
 
       const result = await controller.getUserAuditLogs('user-123');
 
       expect(service.getLogsByUser).toHaveBeenCalledWith('user-123', 100);
-      expect(result).toEqual(logs);
+      expect(result).toEqual([mockAuditLog]);
     });
 
-    it('should respect limit parameter', async () => {
-      service.getLogsByUser.mockResolvedValue([]);
+    it('respects limit parameter', async () => {
+      (service.getLogsByUser as jest.Mock).mockResolvedValue([]);
 
       await controller.getUserAuditLogs('user-123', 50);
 
@@ -163,9 +173,8 @@ describe('AuditLogController', () => {
   });
 
   describe('getActionAuditLogs', () => {
-    it('should return logs for specific action type', async () => {
-      const logs = [mockAuditLog];
-      service.getLogsByActionType.mockResolvedValue(logs);
+    it('returns logs for a specific action type', async () => {
+      (service.getLogsByActionType as jest.Mock).mockResolvedValue([mockAuditLog]);
 
       const result = await controller.getActionAuditLogs('USER_LOGIN');
 
@@ -173,11 +182,11 @@ describe('AuditLogController', () => {
         'USER_LOGIN',
         100,
       );
-      expect(result).toEqual(logs);
+      expect(result).toEqual([mockAuditLog]);
     });
 
-    it('should respect limit parameter', async () => {
-      service.getLogsByActionType.mockResolvedValue([]);
+    it('respects limit parameter', async () => {
+      (service.getLogsByActionType as jest.Mock).mockResolvedValue([]);
 
       await controller.getActionAuditLogs('USER_LOGIN', 50);
 

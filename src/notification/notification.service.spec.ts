@@ -53,8 +53,22 @@ describe('NotificationService', () => {
         icon: '🔔',
       };
       const created = [
-        { userId: 'u1', title: 'Test', message: 'Hello', type: 'info', icon: '🔔', isRead: false },
-        { userId: 'u2', title: 'Test', message: 'Hello', type: 'info', icon: '🔔', isRead: false },
+        {
+          userId: 'u1',
+          title: 'Test',
+          message: 'Hello',
+          type: 'info',
+          icon: '🔔',
+          isRead: false,
+        },
+        {
+          userId: 'u2',
+          title: 'Test',
+          message: 'Hello',
+          type: 'info',
+          icon: '🔔',
+          isRead: false,
+        },
       ];
       (repo.create as any).mockImplementation((input: any) => ({
         ...input,

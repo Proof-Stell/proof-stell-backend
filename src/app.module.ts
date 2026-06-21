@@ -22,6 +22,7 @@ import { MintModule } from './mint/mint.module';
 import { BlockchainService } from './blockchain/blockchain.service';
 import { BlockchainModule } from './blockchain/blockchain.module';
 import { AdminModule } from './admin/admin.module';
+import { AuditLogModule } from './audit/modules/audit-log.module';
 import { PrometheusModule } from '@willsoto/nestjs-prometheus';
 import { RealtimeGateway } from './common/gateways/realtime.gateway';
 import { WinstonModule } from 'nest-winston';
@@ -92,6 +93,7 @@ import { TranslationModule } from './translation';
     MintModule,
     BlockchainModule,
     AdminModule,
+    AuditLogModule,
     LoggingModule,
     CacheModule,
     HealthModule,

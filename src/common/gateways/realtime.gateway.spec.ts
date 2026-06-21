@@ -45,7 +45,9 @@ describe('RealtimeGateway', () => {
     };
 
     const mockAuthTokenService = {
-      verifyAccessToken: jest.fn().mockResolvedValue({ sub: 'user1', role: 'admin' }),
+      verifyAccessToken: jest
+        .fn()
+        .mockResolvedValue({ sub: 'user1', role: 'admin' }),
     };
 
     const module: TestingModule = await Test.createTestingModule({
@@ -108,14 +110,26 @@ describe('RealtimeGateway', () => {
   });
 
   it('should emit notification for admin', async () => {
-    const payload = { userId: 'user2', message: 'msg', type: 'info', title: 'Test', icon: '🔔' };
+    const payload = {
+      userId: 'user2',
+      message: 'msg',
+      type: 'info',
+      title: 'Test',
+      icon: '🔔',
+    };
     const res = await gateway.handleSendNotification(client, payload);
     expect(res.status).toBe('sent');
   });
 
   it('should reject notification for non-admin', async () => {
     client.user.role = 'user';
-    const payload = { userId: 'user2', message: 'msg', type: 'info', title: 'Test', icon: '🔔' };
+    const payload = {
+      userId: 'user2',
+      message: 'msg',
+      type: 'info',
+      title: 'Test',
+      icon: '🔔',
+    };
     const res = await gateway.handleSendNotification(client, payload);
     expect(res.error).toBe('Unauthorized');
   });

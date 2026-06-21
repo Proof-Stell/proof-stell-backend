@@ -46,7 +46,11 @@ describe('LeaderboardService', () => {
         },
         {
           provide: RealtimeGateway,
-          useValue: { emitLeaderboardUpdate: jest.fn(), emitUserRankChange: jest.fn(), emitLeaderboardStats: jest.fn() },
+          useValue: {
+            emitLeaderboardUpdate: jest.fn(),
+            emitUserRankChange: jest.fn(),
+            emitLeaderboardStats: jest.fn(),
+          },
         },
       ],
     }).compile();

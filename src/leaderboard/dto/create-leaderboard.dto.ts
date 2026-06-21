@@ -1,4 +1,3 @@
-/* eslint-disable prettier/prettier */
 import { IsNotEmpty, IsNumber, Min } from 'class-validator';
 
 export class CreateLeaderboardDto {

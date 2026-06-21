@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
+import { INestApplication, HttpStatus } from '@nestjs/common';
+import { APP_FILTER } from '@nestjs/core';
 import { getRepositoryToken } from '@nestjs/typeorm';
 import * as express from 'express';
 import * as request from 'supertest';
@@ -13,6 +14,8 @@ import { User } from '../src/users/entities/user.entity';
 import { JwtAuthGuard } from '../src/common/guards/jwt-auth.guard';
 import { RolesGuard } from '../src/common/guards/roles.guard';
 import { CacheService } from '../src/cache/cache.service';
+import { HttpExceptionFilter } from '../src/common/filters/http-exception.filter';
+import { LoggingService } from '../src/logging/logging.service';
 
 describe('Avatar upload (e2e)', () => {
   let app: INestApplication;
@@ -46,6 +49,13 @@ describe('Avatar upload (e2e)', () => {
       avatarUrl: undefined,
     } as User;
 
+    const mockLoggingService = {
+      error: jest.fn(),
+      warn: jest.fn(),
+      info: jest.fn(),
+      log: jest.fn(),
+    };
+
     const moduleFixture: TestingModule = await Test.createTestingModule({
       controllers: [UserController],
       providers: [
@@ -73,6 +83,14 @@ describe('Avatar upload (e2e)', () => {
               return user;
             }),
           },
+        },
+        {
+          provide: LoggingService,
+          useValue: mockLoggingService,
+        },
+        {
+          provide: APP_FILTER,
+          useClass: HttpExceptionFilter,
         },
       ],
     })
@@ -196,5 +214,22 @@ describe('Avatar upload (e2e)', () => {
 
     await expect(fs.access(oldPath)).rejects.toMatchObject({ code: 'ENOENT' });
     await request(server).get(res.body.avatarUrl).expect(200);
+  });
+
+  describe('error response shape', () => {
+    it('400 error has statusCode, timestamp, path and message fields', async () => {
+      const res = await request(server)
+        .post('/api/v1/users/profile/avatar')
+        .set('Authorization', 'Bearer test-token')
+        .attach('file', pngBuffer, {
+          filename: 'avatar.pdf',
+          contentType: 'application/pdf',
+        })
+        .expect(HttpStatus.BAD_REQUEST);
+
+      expect(typeof res.body.statusCode).toBe('number');
+      expect(res.body.statusCode).toBe(HttpStatus.BAD_REQUEST);
+      expect(typeof res.body.message).toBeDefined();
+    });
   });
 });

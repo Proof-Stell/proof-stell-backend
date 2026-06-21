@@ -1,11 +1,14 @@
-import { Inject, Injectable, forwardRef } from '@nestjs/common';
+import { Inject, Injectable, forwardRef, Logger, BadRequestException } from '@nestjs/common';
 import { Provider, Account, Contract } from 'starknet';
 import { TypedConfigService } from '../common/config/typed-config.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { AnalyticsEvent } from '../analytics/analytics-event.enum';
+import { TransactionReconciliationService, generateIdempotencyKey } from './services/transaction-reconciliation.service';
+import { TransactionStatusType } from './entities/transaction-status.entity';
 
 @Injectable()
 export class BlockchainService {
+  private readonly logger = new Logger(BlockchainService.name);
   private provider: Provider;
   private account: Account;
 
@@ -13,9 +16,11 @@ export class BlockchainService {
     private readonly configService: TypedConfigService,
     @Inject(forwardRef(() => AnalyticsService))
     private readonly analyticsService: AnalyticsService,
+    private readonly reconciliationService: TransactionReconciliationService,
   ) {
     this.provider = new Provider({
-      nodeUrl: 'https://starknet-goerli.g.alchemy.com/v2/demo',
+      nodeUrl: this.configService.starknetRpcUrl ||
+        'https://starknet-goerli.g.alchemy.com/v2/demo',
     });
     const privateKey = this.configService.starknetPrivateKey;
     const accountAddress = this.configService.starknetAccountAddress;

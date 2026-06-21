@@ -43,5 +43,6 @@ export default registerAs('app', () => ({
   starknetPrivateKey: process.env.STARKNET_PRIVATE_KEY,
   starknetAccountAddress: process.env.STARKNET_ACCOUNT_ADDRESS,
   mintContractAddress: process.env.MINT_CONTRACT_ADDRESS,
+  dbSync: process.env.DB_SYNCHRONIZE === 'true',
   // Add more config values as needed
 }));

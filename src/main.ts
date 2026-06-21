@@ -6,6 +6,7 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { TypedConfigService } from './common/config/typed-config.service';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
 import { ThrottlerExceptionFilter } from './throttler-exception.filter';
+import { SecurityHeadersMiddleware } from './security/middleware/security-headers.middleware';
 import { join } from 'path';
 import * as express from 'express';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
@@ -25,8 +26,25 @@ async function bootstrap() {
   const configService = app.get(TypedConfigService);
   const loggingInterceptor = app.get(LoggingInterceptor);
 
-  // Enable CORS
-  app.enableCors();
+  // Enable CORS with environment-driven origins
+  const allowedOrigins = configService.allowedOrigins
+    ? configService.allowedOrigins
+        .split(',')
+        .map((o) => o.trim())
+        .filter(Boolean)
+    : ['http://localhost:3000'];
+
+  if (configService.corsEnabled) {
+    app.enableCors({
+      origin: allowedOrigins,
+      methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE', 'OPTIONS'],
+      credentials: true,
+    });
+  }
+
+  // Apply security headers middleware globally
+  const securityHeaders = new SecurityHeadersMiddleware();
+  app.use(securityHeaders.use.bind(securityHeaders));
 
   // Global validation pipe
   app.useGlobalPipes(
@@ -79,7 +97,12 @@ async function bootstrap() {
   // Global prefix for all routes
   app.setGlobalPrefix('api/v1');
 
-  // Serve normalized avatar files only from the public avatar directory.
+  // Serve normalized avatar files only from the public avatar directory
+  // with safe content headers and cache policy.
+  app.use('/avatars', (req, res, next) => {
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    next();
+  });
   app.use('/avatars', express.static(join(process.cwd(), 'public', 'avatars')));
 
   const healthService = app.get(HealthService);

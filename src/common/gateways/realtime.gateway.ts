@@ -11,12 +11,33 @@ import { Server, Socket } from 'socket.io';
 import { UseGuards } from '@nestjs/common';
 import { WsJwtGuard } from './guards/ws-jwt.guard';
 import { LoggingService } from '../../logging/logging.service';
-import { LeaderboardUpdateDto } from './dto/leaderboard-update.dto';
-import { GameStateChangeDto } from './dto/game-state-change.dto';
 import { NotificationDto } from './dto/notification.dto';
 import { validateOrReject, ValidationError } from 'class-validator';
 
-@WebSocketGateway({ namespace: '/realtime', cors: { origin: '*' } })
+/** Derive WebSocket CORS origins from the same env var as HTTP CORS. */
+const wsCorsOrigin = ((): string | string[] | boolean => {
+  const corsEnabled = process.env.CORS_ENABLED !== 'false';
+  if (!corsEnabled) {
+    return false;
+  }
+  const raw = process.env.ALLOWED_ORIGINS || 'http://localhost:3000';
+  const origins = raw
+    .split(',')
+    .map((o) => o.trim())
+    .filter(Boolean);
+  return origins.length === 1 ? origins[0] : origins;
+})();
+
+@WebSocketGateway({
+  namespace: '/realtime',
+  cors:
+    wsCorsOrigin === false
+      ? false
+      : {
+          origin: wsCorsOrigin,
+          credentials: true,
+        },
+})
 export class RealtimeGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
@@ -29,7 +50,7 @@ export class RealtimeGateway
   private connectedUsers: Map<string, string> = new Map();
 
   @UseGuards(WsJwtGuard)
-  async handleConnection(client: Socket) {
+  handleConnection(client: Socket) {
     try {
       const user = (client as any).user;
       if (!user || !user.sub) {
@@ -66,7 +87,7 @@ export class RealtimeGateway
     }
   }
 
-  async handleDisconnect(client: Socket) {
+  handleDisconnect(client: Socket) {
     const userId = this.connectedUsers.get(client.id);
     if (userId) {
       this.loggingService.info(`User ${userId} disconnected`, {
@@ -87,7 +108,7 @@ export class RealtimeGateway
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('leaderboard:subscribe')
-  async handleLeaderboardSubscribe(
+  handleLeaderboardSubscribe(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { leaderboardId: string },
   ) {
@@ -116,7 +137,7 @@ export class RealtimeGateway
 
   @UseGuards(WsJwtGuard)
   @SubscribeMessage('game:subscribe')
-  async handleGameSubscribe(
+  handleGameSubscribe(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { gameId: string },
   ) {
@@ -139,7 +160,7 @@ export class RealtimeGateway
     }
   }
 
-  async emitLeaderboardUpdate(
+  emitLeaderboardUpdate(
     leaderboardId: string,
     scores: any[],
     updateType:
@@ -172,7 +193,7 @@ export class RealtimeGateway
     );
   }
 
-  async emitUserRankChange(
+  emitUserRankChange(
     userId: string,
     oldRank: number,
     newRank: number,
@@ -187,7 +208,7 @@ export class RealtimeGateway
     });
   }
 
-  async emitLeaderboardStats(leaderboardId: string, stats: any) {
+  emitLeaderboardStats(leaderboardId: string, stats: any) {
     this.server.to(`leaderboard:${leaderboardId}`).emit('leaderboard:stats', {
       leaderboardId,
       stats,
@@ -195,16 +216,13 @@ export class RealtimeGateway
     });
   }
 
-  async emitGameStateChange(
-    gameId: string,
-    state: 'started' | 'paused' | 'ended',
-  ) {
+  emitGameStateChange(gameId: string, state: 'started' | 'paused' | 'ended') {
     this.server
       .to(`game:${gameId}`)
       .emit('game:state-change', { gameId, state });
   }
 
-  async emitNotification(
+  emitNotification(
     userId: string,
     message: string,
     type: string,

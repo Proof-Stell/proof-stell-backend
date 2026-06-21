@@ -27,6 +27,8 @@ export interface AppConfig {
   starknetPrivateKey: string;
   starknetAccountAddress: string;
   mintContractAddress: string;
+  allowedOrigins: string;
+  corsEnabled: boolean;
   // Add more config types as needed
 }
 
@@ -96,6 +98,11 @@ export class TypedConfigService {
       mintContractAddress: this.configService.get<string>(
         'app.mintContractAddress',
       ),
+      allowedOrigins: this.configService.get<string>(
+        'app.allowedOrigins',
+        'http://localhost:3000',
+      ),
+      corsEnabled: this.configService.get<boolean>('app.corsEnabled', true),
       // Add more config getters as needed
     };
   }
@@ -175,5 +182,11 @@ export class TypedConfigService {
   }
   get mintContractAddress() {
     return this.app.mintContractAddress;
+  }
+  get allowedOrigins() {
+    return this.app.allowedOrigins;
+  }
+  get corsEnabled() {
+    return this.app.corsEnabled;
   }
 }

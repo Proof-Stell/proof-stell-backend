@@ -43,5 +43,7 @@ export default registerAs('app', () => ({
   starknetPrivateKey: process.env.STARKNET_PRIVATE_KEY,
   starknetAccountAddress: process.env.STARKNET_ACCOUNT_ADDRESS,
   mintContractAddress: process.env.MINT_CONTRACT_ADDRESS,
+  allowedOrigins: process.env.ALLOWED_ORIGINS || 'http://localhost:3000',
+  corsEnabled: process.env.CORS_ENABLED !== 'false',
   // Add more config values as needed
 }));

@@ -32,5 +32,7 @@ export const validationSchema = Joi.object({
   STARKNET_PRIVATE_KEY: Joi.string().required(),
   STARKNET_ACCOUNT_ADDRESS: Joi.string().required(),
   MINT_CONTRACT_ADDRESS: Joi.string().required(),
+  ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000'),
+  CORS_ENABLED: Joi.string().valid('true', 'false').default('true'),
   // Add more validations as needed
 });

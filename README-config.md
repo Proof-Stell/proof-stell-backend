@@ -138,6 +138,8 @@ this.configService.newFeatureFlag;
 | `STARKNET_PRIVATE_KEY`               | StarkNet signer private key                                   |
 | `STARKNET_ACCOUNT_ADDRESS`           | StarkNet account address                                      |
 | `MINT_CONTRACT_ADDRESS`              | Smart contract address for minting                            |
+| `ALLOWED_ORIGINS`                    | Comma-separated list of allowed CORS origins                  |
+| `CORS_ENABLED`                       | Enable or disable CORS (default: `true`)                      |
 
 ---
 

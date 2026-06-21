@@ -26,6 +26,7 @@ export interface AppConfig {
   schedulerInstanceId: string;
   starknetPrivateKey: string;
   starknetAccountAddress: string;
+  starknetRpcUrl: string;
   mintContractAddress: string;
   // Add more config types as needed
 }

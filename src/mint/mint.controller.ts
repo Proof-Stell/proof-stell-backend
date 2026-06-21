@@ -25,6 +25,22 @@ export class MintController {
       success: true,
       transactionHash: mint.transactionHash,
       explorerUrl,
+      idempotencyKey: mint.idempotencyKey,
+      status: mint.status,
+    };
+  }
+
+  @Get('status/:idempotencyKey')
+  async getMintStatus(@Param('idempotencyKey') idempotencyKey: string): Promise<any> {
+    const mint = await this.mintService.getMintStatus(idempotencyKey);
+    if (!mint) {
+      return { status: 'not_found' };
+    }
+    return {
+      status: mint.status,
+      transactionHash: mint.transactionHash,
+      createdAt: mint.createdAt,
+      updatedAt: mint.updatedAt,
     };
   }
 

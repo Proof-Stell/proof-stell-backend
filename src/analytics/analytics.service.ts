@@ -59,14 +59,36 @@ export class AnalyticsService {
   .getMany();
   }
 
+  /** PII fields that must never be stored or forwarded to providers. */
+  private static readonly PII_KEYS = new Set([
+    'email', 'password', 'ip', 'ipAddress', 'phone', 'address',
+    'ssn', 'creditCard', 'token', 'secret', 'apiKey',
+  ]);
+
+  /** Returns a copy of `metadata` with PII fields removed. */
+  sanitizeMetadata(
+    metadata: Record<string, unknown> | undefined,
+  ): Record<string, unknown> {
+    if (!metadata) return {};
+    return Object.fromEntries(
+      Object.entries(metadata).filter(
+        ([k]) => !AnalyticsService.PII_KEYS.has(k),
+      ),
+    );
+  }
+
   async track(
     event: AnalyticsEvent,
     options: TrackEventOptions = {},
   ): Promise<AnalyticsEventEntity> {
     try {
+      const sanitizedOptions: TrackEventOptions = {
+        ...options,
+        metadata: this.sanitizeMetadata(options.metadata),
+      };
       const analyticsEvent = this.analyticsRepo.create({
         event,
-        ...options,
+        ...sanitizedOptions,
       });
 
       const savedEvent = await this.analyticsRepo.save(analyticsEvent);
@@ -74,7 +96,6 @@ export class AnalyticsService {
       this.logger.debug(`Tracked event: ${event}`, {
         eventId: savedEvent.id,
         userId: options.userId,
-        metadata: options.metadata,
       });
 
       return savedEvent;

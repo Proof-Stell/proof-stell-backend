@@ -1,18 +1,32 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { JwtModule } from '@nestjs/jwt';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { WalletService } from './wallet.service';
 import { WalletController } from './wallet.controller';
 import { ArgentXProvider } from './providers/argentx.provider';
 import { BraavosProvider } from './providers/braavos.provider';
+import { AuthGuard } from '../auth/guards/auth.guard';
 
 @Module({
   imports: [
     ConfigModule,
-    EventEmitterModule.forRoot(), // For emitting wallet events
+    EventEmitterModule.forRoot(),
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (configService: ConfigService) => ({
+        secret: configService.get<string>('app.jwtSecret'),
+        signOptions: {
+          issuer: configService.get<string>('app.jwtIssuer'),
+          audience: configService.get<string>('app.jwtAudience'),
+          expiresIn: configService.get<string>('app.jwtAccessTtl'),
+        },
+      }),
+    }),
   ],
-  providers: [WalletService, ArgentXProvider, BraavosProvider],
+  providers: [WalletService, ArgentXProvider, BraavosProvider, AuthGuard],
   controllers: [WalletController],
-  exports: [WalletService], // Export WalletService for use in other modules
+  exports: [WalletService],
 })
 export class WalletModule {}

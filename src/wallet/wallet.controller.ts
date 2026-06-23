@@ -1,5 +1,14 @@
-import { Controller, Post, Get, UseInterceptors, Logger } from '@nestjs/common';
-import type { WalletService } from './wallet.service';
+import {
+  Controller,
+  Post,
+  Get,
+  UseInterceptors,
+  UseGuards,
+  Logger,
+  Body,
+  Request,
+} from '@nestjs/common';
+import { WalletService } from './wallet.service';
 import type {
   ConnectWalletDto,
   SignMessageDto,
@@ -11,8 +20,10 @@ import type {
   Signature,
 } from './interfaces/wallet.interface';
 import { WalletErrorInterceptor } from './interceptors/wallet-error.interceptor';
+import { AuthGuard } from '../auth/guards/auth.guard';
 
-@UseInterceptors(WalletErrorInterceptor) // Apply the error interceptor to all endpoints in this controller
+@UseInterceptors(WalletErrorInterceptor)
+@UseGuards(AuthGuard)
 @Controller('wallet')
 export class WalletController {
   private readonly logger = new Logger(WalletController.name);
@@ -20,44 +31,59 @@ export class WalletController {
   constructor(private readonly walletService: WalletService) {}
 
   @Post('connect')
-  async connectWallet(body: ConnectWalletDto): Promise<WalletConnectionStatus> {
+  async connectWallet(
+    @Body() body: ConnectWalletDto,
+    @Request() req: { user: { userId: string } },
+  ): Promise<WalletConnectionStatus> {
     this.logger.log(
       `Received connect request for provider: ${body.providerName}`,
     );
-    return this.walletService.connect(body.providerName);
+    return this.walletService.connect(req.user.userId, body.providerName);
   }
 
   @Post('disconnect')
-  async disconnectWallet(): Promise<{ message: string }> {
+  async disconnectWallet(
+    @Request() req: { user: { userId: string } },
+  ): Promise<{ message: string }> {
     this.logger.log('Received disconnect request.');
-    await this.walletService.disconnect();
+    await this.walletService.disconnect(req.user.userId);
     return { message: 'Wallet disconnected successfully.' };
   }
 
   @Get('status')
-  getConnectionStatus(): WalletConnectionStatus {
+  getConnectionStatus(
+    @Request() req: { user: { userId: string } },
+  ): WalletConnectionStatus {
     this.logger.log('Received status request.');
-    return this.walletService.getConnectionStatus();
+    return this.walletService.getConnectionStatus(req.user.userId);
   }
 
   @Get('accounts')
-  async getAccounts(): Promise<string[]> {
+  async getAccounts(
+    @Request() req: { user: { userId: string } },
+  ): Promise<string[]> {
     this.logger.log('Received get accounts request.');
-    return this.walletService.getAccounts();
+    return this.walletService.getAccounts(req.user.userId);
   }
 
   @Get('chain-id')
-  async getChainId(): Promise<string> {
+  async getChainId(
+    @Request() req: { user: { userId: string } },
+  ): Promise<string> {
     this.logger.log('Received get chain ID request.');
-    return this.walletService.getChainId();
+    return this.walletService.getChainId(req.user.userId);
   }
 
   @Post('sign-message')
-  async signMessage(body: SignMessageDto): Promise<{ signature: Signature }> {
+  async signMessage(
+    @Body() body: SignMessageDto,
+    @Request() req: { user: { userId: string } },
+  ): Promise<{ signature: Signature }> {
     this.logger.log(
       `Received sign message request for address: ${body.address}`,
     );
     const signature = await this.walletService.signMessage(
+      req.user.userId,
       body.message,
       body.address,
     );
@@ -66,7 +92,8 @@ export class WalletController {
 
   @Post('send-transaction')
   async sendTransaction(
-    body: SendTransactionDto,
+    @Body() body: SendTransactionDto,
+    @Request() req: { user: { userId: string } },
   ): Promise<{ transactionHash: string }> {
     this.logger.log(
       `Received send transaction request from address: ${body.fromAddress}`,
@@ -83,6 +110,7 @@ export class WalletController {
       chainId: body.chainId,
     };
     const result = await this.walletService.sendTransaction(
+      req.user.userId,
       transactionRequest,
       body.fromAddress,
     );
@@ -90,11 +118,14 @@ export class WalletController {
   }
 
   @Post('switch-network')
-  async switchNetwork(body: SwitchNetworkDto): Promise<{ message: string }> {
+  async switchNetwork(
+    @Body() body: SwitchNetworkDto,
+    @Request() req: { user: { userId: string } },
+  ): Promise<{ message: string }> {
     this.logger.log(
       `Received switch network request to chain ID: ${body.chainId}`,
     );
-    await this.walletService.switchNetwork(body.chainId);
+    await this.walletService.switchNetwork(req.user.userId, body.chainId);
     return { message: `Successfully switched to network ${body.chainId}.` };
   }
 }

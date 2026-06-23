@@ -83,3 +83,17 @@ ON user_badges(badge_id); -- Find all users with a badge
 CREATE INDEX IF NOT EXISTS idx_analytics_recent
 ON analytics_events(timestamp DESC)
 WHERE timestamp > now() - INTERVAL '30 days'; -- Focus on recent analytics only
+
+
+-- ------------------------------------------------------------
+-- LEADERBOARD
+-- Optimizes rank/score queries and per-user lookups.
+-- The userId column already has a UNIQUE constraint; these
+-- indexes speed up rank ordering and score-based sorting.
+-- ------------------------------------------------------------
+
+CREATE INDEX IF NOT EXISTS idx_leaderboard_rank
+ON leaderboard(rank ASC); -- Fast global leaderboard pagination
+
+CREATE INDEX IF NOT EXISTS idx_leaderboard_score_updated
+ON leaderboard(score DESC, "updatedAt" ASC); -- Mirrors RANK() window function order

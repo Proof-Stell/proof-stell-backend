@@ -45,5 +45,21 @@ export default registerAs('app', () => ({
   mintContractAddress: process.env.MINT_CONTRACT_ADDRESS,
   allowedOrigins: process.env.ALLOWED_ORIGINS || 'http://localhost:3000',
   corsEnabled: process.env.CORS_ENABLED !== 'false',
+  notificationMaxRetries: parseInt(
+    process.env.NOTIFICATION_MAX_RETRIES || '5',
+    10,
+  ),
+  notificationBackoffBaseMs: parseInt(
+    process.env.NOTIFICATION_BACKOFF_BASE_MS || '100',
+    10,
+  ),
+  notificationDedupeWindowMs: parseInt(
+    process.env.NOTIFICATION_DEDUPE_WINDOW_MS || '300000',
+    10,
+  ),
+  notificationConcurrency: parseInt(
+    process.env.NOTIFICATION_CONCURRENCY || '10',
+    10,
+  ),
   // Add more config values as needed
 }));

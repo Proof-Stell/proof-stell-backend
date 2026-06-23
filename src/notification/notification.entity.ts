@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
+  Index,
 } from 'typeorm';
 
 export type NotificationType =
@@ -13,6 +14,7 @@ export type NotificationType =
   | 'game_event'
   | 'leaderboard';
 
+@Index(['userId', 'eventId'], { unique: true })
 @Entity('notifications')
 export class Notification {
   @PrimaryGeneratedColumn('uuid')
@@ -32,6 +34,9 @@ export class Notification {
 
   @Column({ nullable: true })
   icon?: string;
+
+  @Column({ nullable: true })
+  eventId?: string;
 
   @Column({ default: false })
   isRead: boolean;

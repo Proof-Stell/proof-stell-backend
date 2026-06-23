@@ -40,5 +40,9 @@ export class CreateNotificationDto {
 
   @IsOptional()
   @IsString()
+  eventId?: string;
+
+  @IsOptional()
+  @IsString()
   icon?: string;
 }

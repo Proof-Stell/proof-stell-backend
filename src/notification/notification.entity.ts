@@ -33,6 +33,9 @@ export class Notification {
   @Column({ nullable: true })
   icon?: string;
 
+  @Column({ nullable: true })
+  eventId?: string;
+
   @Column({ default: false })
   isRead: boolean;
 

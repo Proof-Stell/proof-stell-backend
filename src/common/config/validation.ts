@@ -34,5 +34,9 @@ export const validationSchema = Joi.object({
   MINT_CONTRACT_ADDRESS: Joi.string().required(),
   ALLOWED_ORIGINS: Joi.string().default('http://localhost:3000'),
   CORS_ENABLED: Joi.string().valid('true', 'false').default('true'),
+  // Notification delivery configuration
+  NOTIFICATION_MAX_ATTEMPTS: Joi.number().integer().positive().default(5),
+  NOTIFICATION_BASE_DELAY_MS: Joi.number().integer().positive().default(100),
+  NOTIFICATION_DEDUP_WINDOW_MS: Joi.number().integer().positive().default(300000),
   // Add more validations as needed
 });

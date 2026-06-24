@@ -41,4 +41,8 @@ export class CreateNotificationDto {
   @IsOptional()
   @IsString()
   icon?: string;
+
+  @IsOptional()
+  @IsString()
+  eventId?: string; // Optional id to deduplicate notifications across submissions
 }

@@ -1,6 +1,7 @@
 import { Injectable, Logger, Inject } from '@nestjs/common';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
+import { incrementCacheResult, observeCacheOperation } from '../common/metrics/metrics.decorator';
 
 /**
  * Service for managing cache operations with Redis backend.
@@ -53,12 +54,20 @@ export class CacheService {
    * ```
    */
   async get<T>(key: string): Promise<T | undefined> {
-    const value = await this.cacheManager.get<T>(key);
+    const startedAt = Date.now();
+    let value: T | undefined;
+    try {
+      value = await this.cacheManager.get<T>(key);
+    } finally {
+      observeCacheOperation('get', startedAt);
+    }
     if (value) {
       this.hits++;
+      incrementCacheResult('hit');
       this.logger.debug(`Cache hit for key: ${key}`);
     } else {
       this.misses++;
+      incrementCacheResult('miss');
       this.logger.debug(`Cache miss for key: ${key}`);
     }
     return value;
@@ -85,7 +94,12 @@ export class CacheService {
    * ```
    */
   async set<T>(key: string, value: T, ttl?: number): Promise<void> {
-    await this.cacheManager.set(key, value, ttl);
+    const startedAt = Date.now();
+    try {
+      await this.cacheManager.set(key, value, ttl);
+    } finally {
+      observeCacheOperation('set', startedAt);
+    }
     this.logger.debug(`Cache set for key: ${key}, ttl: ${ttl}`);
   }
 
@@ -188,7 +202,12 @@ export class CacheService {
    * ```
    */
   async del(key: string): Promise<void> {
-    await this.cacheManager.del(key);
+    const startedAt = Date.now();
+    try {
+      await this.cacheManager.del(key);
+    } finally {
+      observeCacheOperation('del', startedAt);
+    }
     const redisClient = this.getRedisClient();
     if (redisClient?.del) {
       await redisClient.del(key);

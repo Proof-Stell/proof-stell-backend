@@ -113,6 +113,26 @@ docker compose -f docker-compose.observability.yml up -d
 
 ---
 
+### Grafana Dashboard and Service Objectives
+
+Grafana provisions the **ProofStell Backend Metrics** dashboard automatically from
+`grafana/dashboards/backend-metrics.json`. Open `http://localhost:3001`, sign in
+with the password configured in `docker-compose.observability.yml`, and select the
+dashboard. It includes blockchain transaction success rate and p95 latency, cache
+hit ratio, and database pool availability.
+
+| Critical operation | SLI | SLO | PromQL |
+|---|---|---|---|
+| Blockchain transactions | Successful transactions / all transactions over 5 minutes | >= 99% successful | `sum(rate(blockchain_transaction_total{status="success"}[5m])) / clamp_min(sum(rate(blockchain_transaction_total[5m])), 0.001)` |
+| Blockchain latency | p95 transaction duration over 5 minutes | <= 2.5 seconds | `histogram_quantile(0.95, sum(rate(blockchain_transaction_duration_ms_bucket[5m])) by (le))` |
+| Cache effectiveness | Hits / (hits + misses) over 15 minutes | >= 80% | `sum(rate(cache_hit_total[15m])) / clamp_min(sum(rate(cache_hit_total[15m])) + sum(rate(cache_miss_total[15m])), 0.001)` |
+| Database capacity | Available connections / pool size | >= 20% available | `database_available_connections / clamp_min(database_connection_pool_size, 1)` |
+
+The `blockchain_transaction_errors_total` counter is labelled with `method` and
+`error_type`; use it to break an error-budget burn down by failure class. Database
+query duration is labelled by SQL command (`query_type`), while transaction duration
+is emitted as `database_transaction_duration_ms`.
+
 ## Scheduled Jobs
 
 All cron jobs use `@nestjs/schedule` with a Redis distributed lock (TTL = `CRON_LOCK_TTL_MS`) to prevent duplicate execution across instances.

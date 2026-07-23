@@ -24,6 +24,7 @@ import { BlockchainModule } from './blockchain/blockchain.module';
 import { AdminModule } from './admin/admin.module';
 import { AuditLogModule } from './audit/modules/audit-log.module';
 import { PrometheusModule } from '@willsoto/nestjs-prometheus';
+import { MetricsModule } from './common/metrics/metrics.module';
 import { RealtimeGateway } from './common/gateways/realtime.gateway';
 import { WinstonModule } from 'nest-winston';
 import { createWinstonLogger } from './logging/logging.config';
@@ -80,6 +81,7 @@ import { TranslationModule } from './translation';
     }),
     ScheduleModule.forRoot(),
     PrometheusModule.register(),
+    MetricsModule,
     UserModule,
     AuthModule,
     LeaderboardModule,

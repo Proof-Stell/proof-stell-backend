@@ -1,0 +1,14 @@
+{
+  "annotations": { "list": [] },
+  "editable": true,
+  "panels": [
+    { "title": "Blockchain transaction success rate", "type": "timeseries", "targets": [{ "expr": "sum(rate(blockchain_transaction_total{status=\"success\"}[5m])) / clamp_min(sum(rate(blockchain_transaction_total[5m])), 0.001)", "legendFormat": "success rate" }] },
+    { "title": "Blockchain p95 latency", "type": "timeseries", "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(blockchain_transaction_duration_ms_bucket[5m])) by (le, method))", "legendFormat": "{{method}}" }] },
+    { "title": "Cache hit ratio", "type": "timeseries", "targets": [{ "expr": "sum(rate(cache_hit_total[5m])) / clamp_min(sum(rate(cache_hit_total[5m])) + sum(rate(cache_miss_total[5m])), 0.001)", "legendFormat": "hit ratio" }] },
+    { "title": "Database pool availability", "type": "timeseries", "targets": [{ "expr": "database_available_connections", "legendFormat": "available" }, { "expr": "database_connection_pool_size", "legendFormat": "pool size" }] }
+  ],
+  "schemaVersion": 39,
+  "title": "ProofStell Backend Metrics",
+  "uid": "proofstell-backend-metrics",
+  "version": 1
+}

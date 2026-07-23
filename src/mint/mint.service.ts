@@ -6,6 +6,7 @@ import { BlockchainService } from 'src/blockchain/blockchain.service';
 import { InjectRepository } from '@nestjs/typeorm';
 import { IdempotencyService } from 'src/common/services/idempotency.service';
 import { SagaBuilder } from 'src/common/saga/saga.builder';
+import { observeDatabaseTransaction } from '../common/metrics/metrics.decorator';
 
 @Injectable()
 export class MintService {
@@ -29,6 +30,7 @@ export class MintService {
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
+    const transactionStartedAt = Date.now();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -80,6 +82,7 @@ export class MintService {
       throw error;
     } finally {
       await queryRunner.release();
+      observeDatabaseTransaction(transactionStartedAt);
     }
   }
 

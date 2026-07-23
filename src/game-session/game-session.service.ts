@@ -11,6 +11,7 @@ import { AchievementService } from '../badge/services/achievement.service';
 import { IdempotencyService } from '../common/services/idempotency.service';
 import { SagaBuilder } from '../common/saga/saga.builder';
 import * as crypto from 'crypto';
+import { observeDatabaseTransaction } from '../common/metrics/metrics.decorator';
 
 export interface SessionAnalytics {
   totalSessions: string;
@@ -81,6 +82,7 @@ export class GameSessionService {
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
+    const transactionStartedAt = Date.now();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -256,6 +258,7 @@ export class GameSessionService {
       throw error;
     } finally {
       await queryRunner.release();
+      observeDatabaseTransaction(transactionStartedAt);
     }
   }
 

@@ -16,6 +16,7 @@ import { RealtimeGateway } from '../common/gateways/realtime.gateway';
 import { IdempotencyService } from '../common/services/idempotency.service';
 import { CacheService } from '../cache/cache.service';
 import { CacheKeys } from '../cache/decorators/cache.decorator';
+import { observeDatabaseTransaction } from '../common/metrics/metrics.decorator';
 
 /**
  * Service for managing leaderboard rankings and score submissions.
@@ -94,6 +95,7 @@ export class LeaderboardService {
     }
 
     const queryRunner = this.dataSource.createQueryRunner();
+    const transactionStartedAt = Date.now();
     await queryRunner.connect();
     await queryRunner.startTransaction();
 
@@ -144,6 +146,7 @@ export class LeaderboardService {
       throw err;
     } finally {
       await queryRunner.release();
+      observeDatabaseTransaction(transactionStartedAt);
     }
 
     // Invalidate cache after successful persistence

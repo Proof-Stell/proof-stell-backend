@@ -3,6 +3,7 @@ import { Provider, Account, Contract } from 'starknet';
 import { TypedConfigService } from '../common/config/typed-config.service';
 import { AnalyticsService } from '../analytics/analytics.service';
 import { AnalyticsEvent } from '../analytics/analytics-event.enum';
+import { Metrics, blockchainMetrics } from '../common/metrics/metrics.decorator';
 
 /**
  * Service for interacting with the StarkNet blockchain.
@@ -87,6 +88,7 @@ export class BlockchainService {
    * console.log('Mint transaction:', result.transaction_hash);
    * ```
    */
+  @Metrics({ ...blockchainMetrics, operation: 'mint' })
   async sendMintTx(userId: number): Promise<{ transaction_hash: string }> {
     const contractAddress = this.configService.mintContractAddress;
     const tx = await this.account.execute({
@@ -121,6 +123,7 @@ export class BlockchainService {
    * console.log('Transfer transaction:', result.transaction_hash);
    * ```
    */
+  @Metrics({ ...blockchainMetrics, operation: 'transfer' })
   async sendTransferTx(
     fromUserId: number,
     toUserId: number,
@@ -158,6 +161,7 @@ export class BlockchainService {
    * console.log('Burn transaction:', result.transaction_hash);
    * ```
    */
+  @Metrics({ ...blockchainMetrics, operation: 'burn' })
   async sendBurnTx(
     userId: number,
     amount: number,
@@ -193,6 +197,7 @@ export class BlockchainService {
    * console.log('User balance:', balance);
    * ```
    */
+  @Metrics({ ...blockchainMetrics, operation: 'get_balance' })
   async getBalance(userId: number): Promise<{ balance: string }> {
     const contractAddress = this.configService.mintContractAddress;
     const contract = new Contract([], contractAddress, this.provider);
@@ -201,6 +206,7 @@ export class BlockchainService {
     return { balance };
   }
 
+  @Metrics({ ...blockchainMetrics, operation: 'wait_for_receipt' })
   async waitForTransactionReceipt(
     txHash: string,
     timeoutMs?: number,

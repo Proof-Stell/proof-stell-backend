@@ -7,6 +7,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { IdempotencyService } from 'src/common/services/idempotency.service';
 import { SagaBuilder } from 'src/common/saga/saga.builder';
 import { observeDatabaseTransaction } from '../common/metrics/metrics.decorator';
+import { CacheService } from 'src/cache/cache.service';
+import { CacheKeys } from 'src/cache/decorators/cache.decorator';
 
 @Injectable()
 export class MintService {
@@ -18,9 +20,21 @@ export class MintService {
     private readonly dataSource: DataSource,
     private readonly blockchainService: BlockchainService,
     private readonly idempotencyService: IdempotencyService,
+    private readonly cacheService: CacheService,
   ) {}
 
   async mint(userId: number): Promise<Mint> {
+    const mintLockKey = `mint:lock:${userId}`;
+    const result = await this.cacheService.withLock(mintLockKey, 30000, async () => {
+      return this.executeMint(userId);
+    });
+    if (!result) {
+      throw new Error(`Could not acquire mint lock for user ${userId} after retries`);
+    }
+    return result;
+  }
+
+  private async executeMint(userId: number): Promise<Mint> {
     const idempotencyKey = this.idempotencyService.generateKey('mint', String(userId));
 
     const cachedResult = await this.idempotencyService.check<Mint>(idempotencyKey);

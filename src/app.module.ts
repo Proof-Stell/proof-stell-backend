@@ -63,9 +63,15 @@ import { TranslationModule } from './translation';
     }),
     ConfigModule.forRoot({
       isGlobal: true,
-      envFilePath: process.env.NODE_ENV === 'production' ? ['.env.production', '.env'] : ['.env.development', '.env'],
+      envFilePath:
+        process.env.NODE_ENV === 'production'
+          ? ['.env.production', '.env']
+          : ['.env.development', '.env'],
       load: [configuration],
       validationSchema,
+      validationOptions: {
+        abortEarly: false,
+      },
     }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],

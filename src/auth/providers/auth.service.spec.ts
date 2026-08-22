@@ -636,9 +636,9 @@ describe('AuthService', () => {
           AUTH_MAX_FAILED_ATTEMPTS: 0,
           AUTH_LOCKOUT_DURATION_SECONDS: -1,
           AUTH_ATTEMPT_WINDOW_SECONDS: 'abc',
-          STARKNET_PRIVATE_KEY: 'private',
-          STARKNET_ACCOUNT_ADDRESS: 'account',
-          MINT_CONTRACT_ADDRESS: 'mint',
+          STARKNET_PRIVATE_KEY: '0xabc123',
+          STARKNET_ACCOUNT_ADDRESS: '0x123abc',
+          MINT_CONTRACT_ADDRESS: '0x456def',
         });
 
         expect(error).toBeDefined();
@@ -649,9 +649,13 @@ describe('AuthService', () => {
           NODE_ENV: 'test',
           DATABASE_URL: 'postgres://localhost/test',
           JWT_SECRET: 'a'.repeat(32),
-          STARKNET_PRIVATE_KEY: 'private',
-          STARKNET_ACCOUNT_ADDRESS: 'account',
-          MINT_CONTRACT_ADDRESS: 'mint',
+          MAIL_HOST: 'smtp.example.com',
+          MAIL_USER: 'test-user',
+          MAIL_PASS: 'test-password',
+          MAIL_FROM: 'noreply@example.com',
+          STARKNET_PRIVATE_KEY: '0xabc123',
+          STARKNET_ACCOUNT_ADDRESS: '0x123abc',
+          MINT_CONTRACT_ADDRESS: '0x456def',
         });
 
         expect(error).toBeUndefined();
@@ -662,6 +666,38 @@ describe('AuthService', () => {
         expect(value.JWT_AUDIENCE).toBe('proof-stell-client');
         expect(value.JWT_ACCESS_TTL).toBe('15m');
         expect(value.JWT_REFRESH_TTL).toBe('7d');
+      });
+
+      it('should reject malformed security configuration values', () => {
+        const { error } = validationSchema.validate(
+          {
+            NODE_ENV: 'production',
+          DATABASE_URL: 'postgres://localhost/test',
+          JWT_SECRET: 'a'.repeat(32),
+          JWT_ACCESS_TTL: '0h',
+          REDIS_PORT: 70000,
+          MAIL_HOST: 'smtp.example.com',
+          MAIL_USER: 'test-user',
+          MAIL_PASS: 'test-password',
+          MAIL_FROM: 'not-an-email',
+          STARKNET_PRIVATE_KEY: 'private',
+          STARKNET_ACCOUNT_ADDRESS: '0x123abc',
+          MINT_CONTRACT_ADDRESS: '0x456def',
+            ALLOWED_ORIGINS: '*',
+          },
+          { abortEarly: false },
+        );
+
+        expect(error).toBeDefined();
+        expect(error?.details.map((detail) => detail.path[0])).toEqual(
+          expect.arrayContaining([
+            'JWT_ACCESS_TTL',
+            'REDIS_PORT',
+            'MAIL_FROM',
+            'STARKNET_PRIVATE_KEY',
+            'ALLOWED_ORIGINS',
+          ]),
+        );
       });
     });
 

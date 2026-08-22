@@ -2,14 +2,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, Between, FindOptionsWhere } from 'typeorm';
-import { Inject } from '@nestjs/common';
-import { CACHE_MANAGER } from '@nestjs/cache-manager';
-import { Cache } from 'cache-manager';
 import { CreateAnalyticsDto } from './dto/create-analytics.dto';
 import { AnalyticsEvent } from './analytics-event.enum';
 import { AnalyticsEventEntity } from './entities/analytics-event.entity';
 import { AnalyticsQueryDto } from './dto/analytics-query.dto';
 import { AnalyticsAggregationDto } from './dto/analytics-aggregation.dto';
+import { CacheService } from '../cache/cache.service';
 
 export interface EventAggregation {
   period: string;
@@ -30,8 +28,8 @@ export class AnalyticsService {
   constructor(
     @InjectRepository(AnalyticsEventEntity)
     private analyticsRepo: Repository<AnalyticsEventEntity>,
-  @Inject(CACHE_MANAGER) private cacheManager: Cache,
-  private readonly logger = new Logger(AnalyticsService.name), // ← wrong pattern
+    private readonly cacheService: CacheService,
+    private readonly logger = new Logger(AnalyticsService.name),
   ) {}
 
   async logEvent(dto: CreateAnalyticsDto): Promise<void> {
@@ -162,7 +160,7 @@ export class AnalyticsService {
   ): Promise<EventAggregation[]> {
     // Cache aggregation results for a short period to reduce DB load on repeated queries
     const cacheKey = `analytics:agg:${query.groupBy}:${query.event || 'all'}:${query.userId || 'all'}:${query.from || ''}:${query.to || ''}`;
-    const cached = await this.cacheManager.get<EventAggregation[]>(cacheKey);
+    const cached = await this.cacheService.get<EventAggregation[]>(cacheKey);
     if (cached) {
       return cached;
     }
@@ -236,7 +234,7 @@ export class AnalyticsService {
       ...(row.event && { event: row.event }),
     }));
 
-    await this.cacheManager.set(cacheKey, mapped, 60); // cache for 60s
+    await this.cacheService.set(cacheKey, mapped, 60); // cache for 60s
     return mapped;
   }
 
@@ -249,7 +247,7 @@ export class AnalyticsService {
     to?: Date,
   ): Promise<number> {
     const cacheKey = `analytics:unique:${event || 'all'}:${from?.toISOString() || ''}:${to?.toISOString() || ''}`;
-    const cached = await this.cacheManager.get<number>(cacheKey);
+    const cached = await this.cacheService.get<number>(cacheKey);
     if (cached !== undefined && cached !== null) {
       return cached;
     }
@@ -272,7 +270,7 @@ export class AnalyticsService {
 
   const result = await queryBuilder.getRawOne();
   const val = parseInt(result.count) || 0;
-  await this.cacheManager.set(cacheKey, val, 60);
+  await this.cacheService.set(cacheKey, val, 60);
   return val;
   }
 

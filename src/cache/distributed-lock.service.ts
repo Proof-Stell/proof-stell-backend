@@ -24,9 +24,15 @@ end
 export const LOCK_RELEASE_OK = 1;
 export const LOCK_RELEASE_NOT_HELD = 0;
 
+export enum LockBackend {
+  REDIS = 'redis',
+  FALLBACK = 'fallback'
+}
+
 export interface AcquiredLock {
   key: string;
   token: string;
+  backend: LockBackend;
 }
 
 /**
@@ -37,7 +43,11 @@ export interface AcquiredLock {
  * Designed so a crashed worker does not deadlock the rest of the cluster
  * (TTL acts as the safety boundary).
  *
- * The service is intentionally Redis-only and does not depend on any
+ * The service provides graceful fallback when Redis is unavailable:
+ * - Redis mode: Full distributed locking with atomic operations
+ * - Fallback mode: Local in-memory locking for development/single-instance scenarios
+ *
+ * The service is intentionally Redis-primary but does not depend on any
  * third-party lock library — the Redis backend is already a hard
  * dependency of the application via `CacheModule`.
  */
@@ -45,21 +55,30 @@ export interface AcquiredLock {
 export class DistributedLockService implements OnModuleDestroy {
   private readonly logger = new Logger(DistributedLockService.name);
   private readonly activeLocks = new Set<string>();
+  private backend: LockBackend = LockBackend.REDIS;
+  private acquisitionFailures = 0;
+  private releaseFailures = 0;
 
   constructor(
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     private readonly configService: TypedConfigService,
-  ) {}
+  ) {
+    this.detectBackend();
+  }
 
   /**
    * Attempt to acquire a lock for the given key. Returns the lock handle
    * on success and `null` when another instance already holds the lock
    * (or the underlying Redis store rejects the request).
+   * 
+   * The method is resilient to Redis failures and will fall back to
+   * local in-memory locking when Redis is unavailable.
    */
   async acquire(
     key: string,
     ttlMs: number = this.configService.cronLockTtlMs,
   ): Promise<AcquiredLock | null> {
+    const normalizedTtlMs = this.normalizeTtl(ttlMs);
     const client = this.getRedisClient();
     // Token is `instanceId:timestamp:rand` — instance id + timestamp
     // dominate uniqueness, the random suffix is a cheap defense against
@@ -72,17 +91,28 @@ export class DistributedLockService implements OnModuleDestroy {
       // Fail-open: without Redis we accept that we are not cluster-safe,
       // but the application must still be runnable for development.
       this.logger.warn(
-        `Redis client unavailable; failing open for lock '${key}' on instance ${this.configService.schedulerInstanceId}.`,
+        `Redis client unavailable; using fallback mode for lock '${key}' on instance ${this.configService.schedulerInstanceId}.`,
       );
+      this.backend = LockBackend.FALLBACK;
+      
+      // Check if already held locally
+      if (this.activeLocks.has(key)) {
+        this.logger.debug(`Lock '${key}' already held locally (fallback mode).`);
+        return null;
+      }
+      
       this.activeLocks.add(key);
-      return { key, token };
+      this.logger.log(
+        `Acquired lock '${key}' in fallback mode for instance ${this.configService.schedulerInstanceId} (ttl=${normalizedTtlMs}ms).`,
+      );
+      return { key, token, backend: LockBackend.FALLBACK };
     }
 
     try {
       // SET key value NX PX ttl — atomic acquire with TTL safety net.
       // Using the options-object form keeps the lock future-compatible
       // with ioredis 5+ where the variadic caller is deprecated.
-      const result = await client.set(key, token, { px: ttlMs, nx: true });
+      const result = await client.set(key, token, { px: normalizedTtlMs, nx: true });
 
       if (result !== 'OK') {
         this.logger.debug(`Lock '${key}' is held by another instance.`);
@@ -90,15 +120,29 @@ export class DistributedLockService implements OnModuleDestroy {
       }
 
       this.activeLocks.add(key);
+      this.backend = LockBackend.REDIS;
       this.logger.log(
-        `Acquired lock '${key}' for instance ${this.configService.schedulerInstanceId} (ttl=${ttlMs}ms).`,
+        `Acquired lock '${key}' for instance ${this.configService.schedulerInstanceId} (ttl=${normalizedTtlMs}ms, backend=redis).`,
       );
-      return { key, token };
+      return { key, token, backend: LockBackend.REDIS };
     } catch (error) {
+      this.acquisitionFailures++;
       this.logger.error(
-        `Failed to acquire lock '${key}': ${(error as Error).message}`,
+        `Failed to acquire lock '${key}' via Redis, attempting fallback: ${(error as Error).message}`,
       );
-      return null;
+      
+      // Attempt fallback on Redis failure
+      if (this.activeLocks.has(key)) {
+        this.logger.debug(`Lock '${key}' already held locally (fallback after Redis failure).`);
+        return null;
+      }
+      
+      this.backend = LockBackend.FALLBACK;
+      this.activeLocks.add(key);
+      this.logger.log(
+        `Acquired lock '${key}' in fallback mode after Redis failure for instance ${this.configService.schedulerInstanceId}.`,
+      );
+      return { key, token, backend: LockBackend.FALLBACK };
     }
   }
 
@@ -106,6 +150,8 @@ export class DistributedLockService implements OnModuleDestroy {
    * Release a previously acquired lock. Only succeeds when the stored
    * value matches the token returned from `acquire`, preventing a
    * delayed release from deleting a lock owned by another instance.
+   * 
+   * Handles both Redis and fallback mode releases appropriately.
    */
   async release(lock: AcquiredLock | null | undefined): Promise<boolean> {
     if (!lock) {
@@ -114,9 +160,21 @@ export class DistributedLockService implements OnModuleDestroy {
 
     this.activeLocks.delete(lock.key);
 
+    // Handle fallback mode locks
+    if (lock.backend === LockBackend.FALLBACK) {
+      this.logger.log(
+        `Released lock '${lock.key}' in fallback mode for instance ${this.configService.schedulerInstanceId}.`,
+      );
+      return true;
+    }
+
     const client = this.getRedisClient();
     if (!client || typeof client.eval !== 'function') {
-      // Fail-open mode: nothing to do on the Redis side.
+      // If we can't reach Redis but the lock was acquired in Redis mode,
+      // we still clean up local state and rely on TTL for safety
+      this.logger.warn(
+        `Redis unavailable during release of lock '${lock.key}'; relying on TTL for cleanup.`,
+      );
       return true;
     }
 
@@ -139,9 +197,12 @@ export class DistributedLockService implements OnModuleDestroy {
       }
       return released;
     } catch (error) {
+      this.releaseFailures++;
       this.logger.error(
         `Failed to release lock '${lock.key}': ${(error as Error).message}`,
       );
+      // Even if release fails, we've cleaned up local state
+      // Redis TTL will handle the rest
       return false;
     }
   }
@@ -200,5 +261,83 @@ export class DistributedLockService implements OnModuleDestroy {
     return (
       store.getClient?.() || store.client || store.redis || store.redisClient
     );
+  }
+
+  /**
+   * Normalizes and validates lock TTL values.
+   * 
+   * Ensures TTL values are within acceptable ranges:
+   * - Rejects negative values
+   * - Clamps to reasonable maximum (1 hour)
+   * - Ensures minimum (100ms)
+   * 
+   * @param ttlMs - The TTL value in milliseconds
+   * @returns Normalized TTL in milliseconds
+   * @private
+   */
+  private normalizeTtl(ttlMs: number): number {
+    if (ttlMs < 0) {
+      this.logger.warn(`Invalid negative lock TTL ${ttlMs}ms, using default`);
+      return this.configService.cronLockTtlMs;
+    }
+
+    const MIN_TTL = 100; // 100ms minimum
+    const MAX_TTL = 3600000; // 1 hour maximum
+
+    if (ttlMs < MIN_TTL) {
+      this.logger.warn(`Lock TTL ${ttlMs}ms below minimum, using ${MIN_TTL}ms`);
+      return MIN_TTL;
+    }
+
+    if (ttlMs > MAX_TTL) {
+      this.logger.warn(`Lock TTL ${ttlMs}ms exceeds maximum, using ${MAX_TTL}ms`);
+      return MAX_TTL;
+    }
+
+    return ttlMs;
+  }
+
+  /**
+   * Detects the available lock backend on initialization.
+   * 
+   * Determines whether Redis is available for distributed locking
+   * or if fallback mode should be used.
+   * 
+   * @private
+   */
+  private detectBackend(): void {
+    const client = this.getRedisClient();
+    if (client && typeof client.set === 'function') {
+      this.backend = LockBackend.REDIS;
+      this.logger.log('Distributed lock backend: Redis');
+    } else {
+      this.backend = LockBackend.FALLBACK;
+      this.logger.log('Distributed lock backend: Fallback (Redis unavailable)');
+    }
+  }
+
+  /**
+   * Gets lock service statistics.
+   * 
+   * Returns performance metrics for the lock service including
+   * backend mode and failure counts.
+   * 
+   * @returns Lock service statistics
+   */
+  getStats() {
+    return {
+      backend: this.backend,
+      activeLocks: this.activeLocks.size,
+      acquisitionFailures: this.acquisitionFailures,
+      releaseFailures: this.releaseFailures,
+    };
+  }
+
+  /**
+   * Resets lock service statistics.
+   */
+  resetStats() {
+    this.acquisitionFailures = 0;
+    this.releaseFailures = 0;
   }
 }

@@ -65,12 +65,25 @@ async function bootstrap() {
 
   // Swagger configuration - only in non-production environments
   if (configService.nodeEnv !== 'production') {
+    // NEW
     const config = new DocumentBuilder()
-      .setTitle('Stark Insured API')
+      .setTitle('ProofStell API')
       .setDescription(
-        'Comprehensive API documentation for the Stark Insured backend',
+        'API documentation for the ProofStell backend: authentication, wallet lifecycle, game sessions, leaderboard, and audit logging.',
       )
       .setVersion('1.0')
+      .addTag(
+        'Authentication',
+        'Login, registration, token refresh, and session revocation',
+      )
+      .addTag(
+        'Wallet',
+        'Wallet connection, message signing, and on-chain transaction relay',
+      )
+      .addTag(
+        'Admin - Audit Logs',
+        'Immutable audit trail for privileged admin actions',
+      )
       .addBearerAuth(
         {
           type: 'http',
@@ -83,7 +96,6 @@ async function bootstrap() {
         'JWT-auth',
       )
       .build();
-
     const document = SwaggerModule.createDocument(app, config);
     SwaggerModule.setup('api/docs', app, document, {
       swaggerOptions: {

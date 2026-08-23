@@ -5,7 +5,6 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
-import { Observable } from 'rxjs';
 import { Request } from 'express';
 import { SessionIntegrityService } from '../services/session-integrity.service';
 
@@ -34,12 +33,10 @@ export class SessionIntegrityGuard implements CanActivate {
     private readonly sessionIntegrityService: SessionIntegrityService,
   ) {}
 
-  async canActivate(
-    context: ExecutionContext,
-  ): Promise<boolean> {
+  async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<CustomRequest>();
     const userId = request.user?.id;
-    
+
     // Safe request body handling
     if (!request.body) {
       this.logger.warn('Request body is missing or null', { userId });
@@ -55,10 +52,8 @@ export class SessionIntegrityGuard implements CanActivate {
     }
 
     // Session timing validation
-    const timingResult = this.sessionIntegrityService.validateSessionTiming(
-      sessionData,
-      userId,
-    );
+    const timingResult =
+      this.sessionIntegrityService.validateSessionTiming(sessionData);
     if (!timingResult.isValid) {
       this.logger.warn('Session timing validation failed', {
         userId,
@@ -74,7 +69,6 @@ export class SessionIntegrityGuard implements CanActivate {
     // Input sequence validation
     const sequenceResult = this.sessionIntegrityService.validateInputSequence(
       sessionData.inputs,
-      userId,
     );
     if (!sequenceResult.isValid) {
       this.logger.warn('Input sequence validation failed', {

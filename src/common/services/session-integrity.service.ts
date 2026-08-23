@@ -30,10 +30,7 @@ export class SessionIntegrityService {
 
   constructor(private readonly cacheService: CacheService) {}
 
-  validateSessionTiming(
-    sessionData: SessionData,
-    userId?: string,
-  ): ValidationResult {
+  validateSessionTiming(sessionData: SessionData): ValidationResult {
     const { duration, inputs } = sessionData;
 
     // Validate duration bounds
@@ -122,8 +119,9 @@ export class SessionIntegrityService {
   }
 
   validateInputSequence(
-    inputs: Array<{ timestamp: number; sequence?: number; clientId?: string }> | undefined,
-    userId?: string,
+    inputs:
+      | Array<{ timestamp: number; sequence?: number; clientId?: string }>
+      | undefined,
   ): ValidationResult {
     if (!inputs || inputs.length === 0) {
       return { isValid: true };
@@ -226,15 +224,18 @@ export class SessionIntegrityService {
     // Check if this exact session payload was recently processed
     const payloadHash = this.calculatePayloadHash(sessionData);
     const replayKey = `replay:${userId}:${payloadHash}`;
-    
+
     try {
+      // CacheService.get() is typed to return `any` — narrow to `unknown`
+      // immediately so downstream usage can't silently smuggle `any`
+      // into typed structures (ESLint no-unsafe-assignment).
       const existing = await this.cacheService.get(replayKey);
       if (existing) {
         return {
           isSuspicious: true,
           reason: 'Duplicate session payload detected (possible replay attack)',
           details: {
-            previousSubmissionTime: existing,
+            previousSubmissionTime: existing as string | number,
             payloadHash,
           },
         };
@@ -242,7 +243,7 @@ export class SessionIntegrityService {
 
       // Store this payload for 5 minutes to detect immediate replays
       await this.cacheService.set(replayKey, Date.now(), 300000);
-    } catch (error) {
+    } catch (error: unknown) {
       this.logger.error('Failed to check replay cache', { error, userId });
       // Don't block on cache errors, just log
     }
@@ -251,20 +252,21 @@ export class SessionIntegrityService {
     if (sessionData.signature) {
       const signatureKey = `signature:${userId}:${sessionData.signature}`;
       try {
-        const existing = await this.cacheService.get(signatureKey);
-        if (existing) {
+        const existingSignature: unknown =
+          await this.cacheService.get(signatureKey);
+        if (existingSignature) {
           return {
             isSuspicious: true,
             reason: 'Signature reuse detected (possible replay attack)',
             details: {
-              previousSubmissionTime: existing,
+              previousSubmissionTime: existingSignature as string | number,
               signature: sessionData.signature,
             },
           };
         }
         // Store signature for 1 hour
         await this.cacheService.set(signatureKey, Date.now(), 3600000);
-      } catch (error) {
+      } catch (error: unknown) {
         this.logger.error('Failed to check signature cache', { error, userId });
       }
     }
@@ -272,13 +274,33 @@ export class SessionIntegrityService {
     // Check for rapid session submissions (potential automation/replay)
     const rateLimitKey = `session_rate:${userId}`;
     try {
-      const recentSubmissions = await this.cacheService.get(rateLimitKey) as string | null;
-      const submissions = recentSubmissions ? JSON.parse(recentSubmissions) : [];
-      
+      const recentSubmissions: unknown =
+        await this.cacheService.get(rateLimitKey);
+
+      let submissions: number[] = [];
+      if (typeof recentSubmissions === 'string') {
+        try {
+          const parsed: unknown = JSON.parse(recentSubmissions);
+          submissions = Array.isArray(parsed) ? (parsed as number[]) : [];
+        } catch (parseError: unknown) {
+          this.logger.error('Failed to parse rate limit cache entry', {
+            parseError,
+            userId,
+          });
+          submissions = [];
+        }
+      } else if (Array.isArray(recentSubmissions)) {
+        // Some cache clients (e.g. those with automatic JSON deserialization)
+        // may hand back an already-parsed array.
+        submissions = recentSubmissions as number[];
+      }
+
       const now = Date.now();
       const oneMinuteAgo = now - 60000;
-      const recentCount = submissions.filter((t: number) => t > oneMinuteAgo).length;
-      
+      const recentCount = submissions.filter(
+        (t: number) => t > oneMinuteAgo,
+      ).length;
+
       if (recentCount > 10) {
         return {
           isSuspicious: true,
@@ -290,8 +312,12 @@ export class SessionIntegrityService {
       // Update rate limit tracking
       submissions.push(now);
       const filtered = submissions.filter((t: number) => t > oneMinuteAgo);
-      await this.cacheService.set(rateLimitKey, JSON.stringify(filtered), 120000);
-    } catch (error) {
+      await this.cacheService.set(
+        rateLimitKey,
+        JSON.stringify(filtered),
+        120000,
+      );
+    } catch (error: unknown) {
       this.logger.error('Failed to check rate limit cache', { error, userId });
     }
 
@@ -303,9 +329,10 @@ export class SessionIntegrityService {
       duration: sessionData.duration,
       inputCount: sessionData.inputs?.length || 0,
       firstTimestamp: sessionData.inputs?.[0]?.timestamp || 0,
-      lastTimestamp: sessionData.inputs?.[sessionData.inputs.length - 1]?.timestamp || 0,
+      lastTimestamp:
+        sessionData.inputs?.[sessionData.inputs.length - 1]?.timestamp || 0,
     };
-    
+
     // Simple hash for detection (not cryptographic)
     return JSON.stringify(dataToHash);
   }

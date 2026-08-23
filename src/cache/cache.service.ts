@@ -159,15 +159,6 @@ export class CacheService {
    * ```
    */
   async get<T>(key: string): Promise<T | undefined> {
-    const value = await this.cacheManager.get<T>(key);
-    if (value) {
-      this.hits++;
-      this.trackBackendHit(true);
-      this.logger.debug(`Cache hit for key: ${key} (backend: ${this.backend})`);
-    } else {
-      this.misses++;
-      this.trackBackendHit(false);
-      this.logger.debug(`Cache miss for key: ${key} (backend: ${this.backend})`);
     const startTime = Date.now();
     const prefix = getKeyPrefix(key);
     try {
@@ -224,9 +215,6 @@ export class CacheService {
    * ```
    */
   async set<T>(key: string, value: T, ttl?: number): Promise<void> {
-    const normalizedTtl = this.normalizeTtl(ttl);
-    await this.cacheManager.set(key, value, normalizedTtl);
-    this.logger.debug(`Cache set for key: ${key}, ttl: ${normalizedTtl || 'default'} (backend: ${this.backend})`);
     const startTime = Date.now();
     try {
       await this.cacheManager.set(key, value, ttl);
@@ -267,29 +255,6 @@ export class CacheService {
    * ```
    */
   async increment(key: string, ttl?: number): Promise<number> {
-    const normalizedTtl = this.normalizeTtl(ttl);
-    const redisClient = this.getRedisClient();
-    
-    if (redisClient?.incr) {
-      try {
-        const value = await redisClient.incr(key);
-        if (value === 1 && normalizedTtl && redisClient.expire) {
-          await redisClient.expire(key, normalizedTtl);
-        }
-        this.logger.debug(`Cache increment (Redis) for key: ${key}, value: ${value}`);
-        return value;
-      } catch (error) {
-        this.logger.warn(`Redis increment failed for key ${key}, falling back to in-memory: ${(error as Error).message}`);
-        // Fall through to in-memory implementation
-      }
-    }
-
-    // In-memory fallback with consistent semantics
-    const current = (await this.get<number>(key)) || 0;
-    const value = current + 1;
-    await this.set(key, value, normalizedTtl);
-    this.logger.debug(`Cache increment (memory) for key: ${key}, value: ${value}`);
-    return value;
     const startTime = Date.now();
     try {
       const redisClient = this.getRedisClient();
@@ -518,9 +483,6 @@ export class CacheService {
       cacheOperationsCounter.inc({ operation: 'acquireLock', status: 'error' });
       throw error;
     }
-    this.lockFailures++;
-    this.logger.warn(`Failed to acquire lock '${key}' after ${retries + 1} attempts (backend: ${this.backend})`);
-    return null;
   }
 
   /**
@@ -620,39 +582,6 @@ export class CacheService {
     }
   }
 
-  async setIfNotExists<T>(key: string, value: T, ttl?: number): Promise<boolean> {
-    const normalizedTtl = this.normalizeTtl(ttl);
-    const client = this.getRedisClient();
-    
-    if (client?.set) {
-      try {
-        const serialized = JSON.stringify(value);
-        const options: any = { nx: true };
-        if (normalizedTtl) {
-          options.ex = normalizedTtl;
-        }
-        const result = await client.set(key, serialized, options);
-        const success = result === 'OK';
-        if (!success) {
-          this.keyCollisions++;
-          this.logger.debug(`Key collision for setIfNotExists: ${key}`);
-        }
-        return success;
-      } catch (error) {
-        this.logger.warn(`Redis setIfNotExists failed for key ${key}, falling back to in-memory: ${(error as Error).message}`);
-        // Fall through to in-memory implementation
-      }
-    }
-
-    // In-memory fallback with consistent semantics
-    const existing = await this.get<T>(key);
-    if (existing !== undefined) {
-      this.keyCollisions++;
-      this.logger.debug(`Key collision for setIfNotExists (memory): ${key}`);
-      return false;
-    }
-    await this.set(key, value, normalizedTtl);
-    return true;
   async setIfNotExists<T>(
     key: string,
     value: T,

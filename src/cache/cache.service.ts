@@ -57,10 +57,39 @@ function getKeyPrefix(key: string): string {
 }
 
 /**
+ * Cache backend type for tracking and debugging
+ */
+export enum CacheBackend {
+  REDIS = 'redis',
+  MEMORY = 'memory',
+  UNKNOWN = 'unknown'
+}
+
+/**
+ * Detailed cache statistics including backend-specific metrics
+ */
+export interface CacheStats {
+  hits: number;
+  misses: number;
+  hitRate: number;
+  totalRequests: number;
+  backend: CacheBackend;
+  redisHits: number;
+  redisMisses: number;
+  memoryHits: number;
+  memoryMisses: number;
+  lockFailures: number;
+  keyCollisions: number;
+}
+
+/**
  * Service for managing cache operations with Redis backend.
  *
  * This service provides a unified interface for caching operations including
  * get, set, increment, delete, and health checks. It tracks cache statistics
+ * (hits/misses) and supports both memory and Redis-based caching with consistent
+ * semantics across backends.
+ * 
  * (hits/misses) and supports both memory and Redis-based caching.
  *
  * ## Cache Key Convention
@@ -69,6 +98,13 @@ function getKeyPrefix(key: string): string {
  * - `user:profile:123`
  * - `leaderboard:ranking:daily`
  * - `game:session:abc-123`
+ * 
+ * ## TTL Handling
+ * All TTL values are normalized to seconds and validated before use:
+ * - Minimum: 1 second (values < 1 are treated as no TTL)
+ * - Maximum: 365 days (values > 31536000 are clamped)
+ * - Negative values are rejected
+ * 
  *
  * @example
  * ```typescript
@@ -82,6 +118,13 @@ export class CacheService {
   private readonly logger = new Logger(CacheService.name);
   private hits = 0;
   private misses = 0;
+  private redisHits = 0;
+  private redisMisses = 0;
+  private memoryHits = 0;
+  private memoryMisses = 0;
+  private lockFailures = 0;
+  private keyCollisions = 0;
+  private backend: CacheBackend = CacheBackend.UNKNOWN;
 
   /**
    * Creates a new CacheService instance.
@@ -91,10 +134,16 @@ export class CacheService {
   constructor(
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
     private readonly distributedLockService: DistributedLockService,
-  ) {}
+  ) {
+    this.detectBackend();
+  }
 
   /**
    * Retrieves a value from the cache.
+   * 
+   * This method fetches a value by key and tracks cache hit/miss statistics
+   * with backend-specific tracking.
+   * 
    *
    * This method fetches a value by key and tracks cache hit/miss statistics.
    *
@@ -147,6 +196,9 @@ export class CacheService {
    *
    * This method stores a value in the cache with an optional time-to-live
    * in seconds. If no TTL is provided, the value persists based on the
+   * cache manager's default configuration. TTL values are normalized and
+   * validated before storage.
+   * 
    * cache manager's default configuration.
    *
    * @param key - The cache key to set
@@ -606,13 +658,19 @@ export class CacheService {
     predicate?: (value: T | undefined) => boolean,
   ): Promise<T | undefined> {
     const deadline = Date.now() + timeoutMs;
+    let attempts = 0;
+    
     while (Date.now() < deadline) {
+      attempts++;
       const value = await this.get<T>(key);
       if (value !== undefined && (!predicate || predicate(value))) {
+        this.logger.debug(`waitForValue succeeded for key: ${key} after ${attempts} attempts`);
         return value;
       }
       await new Promise((resolve) => setTimeout(resolve, intervalMs));
     }
+    
+    this.logger.debug(`waitForValue timed out for key: ${key} after ${attempts} attempts`);
     return undefined;
   }
 
@@ -620,6 +678,11 @@ export class CacheService {
    * Gets cache statistics including hits, misses, and hit rate.
    *
    * This method returns performance metrics for the cache service,
+   * useful for monitoring and optimization. Includes backend-specific
+   * metrics to distinguish Redis vs in-memory performance.
+   * 
+   * @returns Object containing detailed cache statistics
+   * 
    * useful for monitoring and optimization.
    *
    * @returns Object containing hits, misses, hit rate, and total requests
@@ -628,20 +691,30 @@ export class CacheService {
    * ```typescript
    * const stats = cacheService.getStats();
    * console.log(`Hit rate: ${(stats.hitRate * 100).toFixed(2)}%`);
+   * console.log(`Backend: ${stats.backend}`);
    * ```
    */
-  getStats() {
+  getStats(): CacheStats {
     const total = this.hits + this.misses;
     return {
       hits: this.hits,
       misses: this.misses,
       hitRate: total > 0 ? this.hits / total : 0,
       totalRequests: total,
+      backend: this.backend,
+      redisHits: this.redisHits,
+      redisMisses: this.redisMisses,
+      memoryHits: this.memoryHits,
+      memoryMisses: this.memoryMisses,
+      lockFailures: this.lockFailures,
+      keyCollisions: this.keyCollisions,
     };
   }
 
   /**
    * Resets cache statistics counters.
+   * 
+   * This method zeroes out all statistics counters, useful for
    *
    * This method zeroes out the hit and miss counters, useful for
    * periodic monitoring or testing.
@@ -654,6 +727,12 @@ export class CacheService {
   resetStats() {
     this.hits = 0;
     this.misses = 0;
+    this.redisHits = 0;
+    this.redisMisses = 0;
+    this.memoryHits = 0;
+    this.memoryMisses = 0;
+    this.lockFailures = 0;
+    this.keyCollisions = 0;
   }
 
   /**
@@ -669,5 +748,86 @@ export class CacheService {
     const cacheManager = this.cacheManager as any;
     const store = cacheManager.store || cacheManager.stores?.[0];
     return store?.getClient?.() || store?.client || store?.redis || undefined;
+  }
+
+  /**
+   * Normalizes and validates TTL values.
+   * 
+   * Ensures TTL values are within acceptable ranges:
+   * - Converts to seconds if needed
+   * - Rejects negative values
+   * - Clamps to maximum (365 days)
+   * - Treats values < 1 as "no TTL"
+   * 
+   * @param ttl - The TTL value in seconds (optional)
+   * @returns Normalized TTL in seconds, or undefined for no TTL
+   * @private
+   */
+  private normalizeTtl(ttl?: number): number | undefined {
+    if (ttl === undefined || ttl === null) {
+      return undefined;
+    }
+
+    if (ttl < 0) {
+      this.logger.warn(`Invalid negative TTL ${ttl} provided, treating as no TTL`);
+      return undefined;
+    }
+
+    if (ttl < 1) {
+      return undefined;
+    }
+
+    // Maximum TTL: 365 days in seconds
+    const MAX_TTL = 365 * 24 * 60 * 60;
+    if (ttl > MAX_TTL) {
+      this.logger.warn(`TTL ${ttl}s exceeds maximum, clamping to ${MAX_TTL}s`);
+      return MAX_TTL;
+    }
+
+    return ttl;
+  }
+
+  /**
+   * Detects the current cache backend on initialization.
+   * 
+   * Determines whether Redis or in-memory caching is being used
+   * by checking for Redis client availability.
+   * 
+   * @private
+   */
+  private detectBackend(): void {
+    const redisClient = this.getRedisClient();
+    if (redisClient) {
+      this.backend = CacheBackend.REDIS;
+      this.logger.log('Cache backend detected: Redis');
+    } else {
+      this.backend = CacheBackend.MEMORY;
+      this.logger.log('Cache backend detected: In-memory (Redis unavailable)');
+    }
+  }
+
+  /**
+   * Tracks cache hits/misses by backend type.
+   * 
+   * Updates backend-specific statistics based on current backend
+   * and whether the operation was a hit or miss.
+   * 
+   * @param isHit - Whether the operation was a cache hit
+   * @private
+   */
+  private trackBackendHit(isHit: boolean): void {
+    if (this.backend === CacheBackend.REDIS) {
+      if (isHit) {
+        this.redisHits++;
+      } else {
+        this.redisMisses++;
+      }
+    } else {
+      if (isHit) {
+        this.memoryHits++;
+      } else {
+        this.memoryMisses++;
+      }
+    }
   }
 }

@@ -65,13 +65,14 @@ export class JwtSecurityService {
     try {
       const decoded = this.jwtService.decode(token);
       if (decoded && decoded.exp) {
-        // Calculate TTL based on token expiry
-        const ttl = decoded.exp * 1000 - Date.now();
-        if (ttl > 0) {
+        // Calculate TTL based on token expiry (convert milliseconds to seconds)
+        const ttlMs = decoded.exp * 1000 - Date.now();
+        if (ttlMs > 0) {
+          const ttlSeconds = Math.ceil(ttlMs / 1000);
           await this.cacheManager.set(
             `${this.JWT_BLACKLIST_PREFIX}${token}`,
             'blacklisted',
-            ttl,
+            ttlSeconds, // Use seconds for consistency with cache service
           );
         }
       }
@@ -80,7 +81,7 @@ export class JwtSecurityService {
       await this.cacheManager.set(
         `${this.JWT_BLACKLIST_PREFIX}${token}`,
         'blacklisted',
-        3600000, // 1 hour default TTL
+        3600, // 1 hour default TTL in seconds
       );
     }
   }

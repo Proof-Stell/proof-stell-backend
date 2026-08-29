@@ -7,7 +7,6 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { User } from '../entities/user.entity';
-import sharp from 'sharp';
 import sharp, { type Metadata } from 'sharp';
 import * as path from 'path';
 import * as fs from 'fs/promises';

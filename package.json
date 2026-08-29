@@ -104,12 +104,13 @@
     "ts-node": "^10.9.2",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.8.3",
-    "typescript-eslint": "^8.20.0"
+    "typescript-eslint": "^8.67.0"
   },
   "overrides": {
     "preview-email": "^3.4.0",
     "mailparser": "^3.9.17",
-    "linkify-it": "^5.0.2"
+    "linkify-it": "^5.0.2",
+    "deepmerge-ts": "^8.0.2"
   },
   "allowScripts": {
     "@scarf/scarf@1.4.0": true,

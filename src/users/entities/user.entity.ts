@@ -9,7 +9,7 @@ import {
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { Role } from '../../common/enums/role.enum';
-import { GameSession } from 'src/game-session/entities/game-session.entity';
+import { GameSession } from '../../game-session/entities/game-session.entity';
 import { Leaderboard } from '../../leaderboard/entities/leaderboard.entity';
 import { UserBadge } from '../../badge/entities/user-badge.entity';
 

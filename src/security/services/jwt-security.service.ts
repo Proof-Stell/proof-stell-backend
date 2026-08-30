@@ -1,18 +1,15 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { ConfigService } from '@nestjs/config';
+import { TypedConfigService } from '../../common/config/typed-config.service';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Cache } from 'cache-manager';
 
 @Injectable()
 export class JwtSecurityService {
   private readonly JWT_BLACKLIST_PREFIX = 'jwt_blacklist:';
-  private readonly JWT_EXPIRY = '1h'; // 1 hour default expiry
-  private readonly REFRESH_TOKEN_EXPIRY = '7d'; // 7 days for refresh tokens
-
   constructor(
     private readonly jwtService: JwtService,
-    private readonly configService: ConfigService,
+    private readonly configService: TypedConfigService,
     @Inject(CACHE_MANAGER) private readonly cacheManager: Cache,
   ) {}
 
@@ -21,8 +18,10 @@ export class JwtSecurityService {
    */
   async generateAccessToken(payload: any): Promise<string> {
     return this.jwtService.signAsync(payload, {
-      expiresIn: this.JWT_EXPIRY,
-      secret: this.configService.get<string>('JWT_SECRET'),
+      secret: this.configService.jwtSecret,
+      issuer: this.configService.jwtIssuer,
+      audience: this.configService.jwtAudience,
+      expiresIn: this.configService.jwtAccessTtl,
     });
   }
 
@@ -33,8 +32,10 @@ export class JwtSecurityService {
     return this.jwtService.signAsync(
       { ...payload, type: 'refresh' },
       {
-        expiresIn: this.REFRESH_TOKEN_EXPIRY,
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        expiresIn: this.configService.jwtRefreshTtl,
+        secret: this.configService.jwtSecret,
+        issuer: this.configService.jwtIssuer,
+        audience: this.configService.jwtAudience,
       },
     );
   }
@@ -51,7 +52,9 @@ export class JwtSecurityService {
 
     try {
       return await this.jwtService.verifyAsync(token, {
-        secret: this.configService.get<string>('JWT_SECRET'),
+        secret: this.configService.jwtSecret,
+        issuer: this.configService.jwtIssuer,
+        audience: this.configService.jwtAudience,
       });
     } catch (error) {
       throw new Error('Invalid token');
@@ -112,7 +115,9 @@ export class JwtSecurityService {
   async refreshAccessToken(refreshToken: string): Promise<string> {
     try {
       const payload = await this.jwtService.verifyAsync(refreshToken, {
-        secret: this.configService.get<string>('JWT_REFRESH_SECRET'),
+        secret: this.configService.jwtSecret,
+        issuer: this.configService.jwtIssuer,
+        audience: this.configService.jwtAudience,
       });
 
       if (payload.type !== 'refresh') {

@@ -10,7 +10,7 @@ import { SecurityHeadersMiddleware } from './security/middleware/security-header
 import { join } from 'path';
 import * as express from 'express';
 import { WINSTON_MODULE_NEST_PROVIDER } from 'nest-winston';
-import * as requestId from 'express-request-id';
+import requestId from 'express-request-id';
 import { LoggingInterceptor } from './logging/logging.interceptor';
 import { LoggingService } from './logging/logging.service';
 import { HealthService } from './health/health.service';
@@ -25,6 +25,24 @@ async function bootstrap() {
 
   const configService = app.get(TypedConfigService);
   const loggingInterceptor = app.get(LoggingInterceptor);
+
+  app.get(WINSTON_MODULE_NEST_PROVIDER).info('Validated security configuration loaded', {
+    nodeEnv: configService.nodeEnv,
+    jwt: {
+      issuer: configService.jwtIssuer,
+      audience: configService.jwtAudience,
+      accessTtl: configService.jwtAccessTtl,
+      refreshTtl: configService.jwtRefreshTtl,
+    },
+    redis: {
+      host: configService.redisHost,
+      port: configService.redisPort,
+    },
+    wallet: {
+      starknetConfigured: Boolean(configService.starknetPrivateKey && configService.starknetAccountAddress),
+      mintContractConfigured: Boolean(configService.mintContractAddress),
+    },
+  });
 
   // Enable CORS with environment-driven origins
   const allowedOrigins = configService.allowedOrigins

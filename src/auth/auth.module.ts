@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { LocalStrategy } from './strategies/local.strategy';
@@ -22,13 +22,13 @@ import { TypedConfigService } from 'src/common/config/typed-config.service';
     CacheModule,
     JwtModule.registerAsync({
       imports: [ConfigModule],
-      inject: [ConfigService],
-      useFactory: async (configService: ConfigService) => ({
-        secret: configService.get<string>('app.jwtSecret'),
+      inject: [TypedConfigService],
+      useFactory: async (configService: TypedConfigService) => ({
+        secret: configService.jwtSecret,
         signOptions: {
-          issuer: configService.get<string>('app.jwtIssuer'),
-          audience: configService.get<string>('app.jwtAudience'),
-          expiresIn: configService.get<string>('app.jwtAccessTtl'),
+          issuer: configService.jwtIssuer,
+          audience: configService.jwtAudience,
+          expiresIn: configService.jwtAccessTtl,
         },
       }),
     }),

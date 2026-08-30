@@ -1,11 +1,12 @@
 import { Module, Global } from '@nestjs/common';
 import { CacheModule as NestCacheModule } from '@nestjs/cache-manager';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConfigModule } from '@nestjs/config';
 import * as redisStore from 'cache-manager-ioredis';
 import { CacheService } from './cache.service';
 import { CacheInterceptor } from './interceptors/cache.interceptor';
 import { CacheController } from './cache.controller';
 import { DistributedLockService } from './distributed-lock.service';
+import { TypedConfigService } from '../common/config/typed-config.service';
 
 @Global()
 @Module({
@@ -13,10 +14,10 @@ import { DistributedLockService } from './distributed-lock.service';
     NestCacheModule.registerAsync({
       imports: [ConfigModule],
       isGlobal: true,
-      useFactory: (configService: ConfigService) => ({
+      useFactory: (configService: TypedConfigService) => ({
         store: redisStore,
-        host: configService.get<string>('app.redisHost', 'localhost'),
-        port: configService.get<number>('app.redisPort', 6379),
+        host: configService.redisHost,
+        port: configService.redisPort,
         ttl: 300, // Default 5 minutes TTL
         max: 1000, // Maximum number of items in cache
         keyPrefix: 'Proof-Stell:', // Prefix for all cache keys
@@ -30,11 +31,16 @@ import { DistributedLockService } from './distributed-lock.service';
         serialize: JSON.stringify,
         deserialize: JSON.parse,
       }),
-      inject: [ConfigService],
+      inject: [TypedConfigService],
     }),
   ],
   controllers: [CacheController],
-  providers: [CacheService, CacheInterceptor, DistributedLockService],
+  providers: [
+    CacheService,
+    CacheInterceptor,
+    DistributedLockService,
+    TypedConfigService,
+  ],
   exports: [
     CacheService,
     CacheInterceptor,

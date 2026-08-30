@@ -6,7 +6,7 @@ import { User } from '../../users/entities/user.entity';
 import { Cache } from 'cache-manager';
 import { CACHE_MANAGER } from '@nestjs/cache-manager';
 import { Inject } from '@nestjs/common';
-import { Game } from 'src/game/entities/game.entity';
+import { Game } from '../../game/entities/game.entity';
 
 @Injectable()
 export class MetricsService {
